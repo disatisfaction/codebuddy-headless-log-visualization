@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CodeBuddy Headless 日志可视化</title>
+    <script src="/static/js/echarts.min.js"></script>
+    <script src="/static/js/marked.min.js"></script>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <header class="header">
+        <h1>📊 CodeBuddy Headless 日志可视化</h1>
+        <div class="header-right">
+            <select id="fileSelector" class="file-selector">
+                <option value="">-- 选择日志文件 --</option>
+            </select>
+            <input type="file" id="folderInput" class="folder-input" webkitdirectory multiple style="display:none">
+            <span class="folder-picker-wrap">
+                <button id="folderBtn" class="btn btn-folder" title="浏览并选择目录">📁 选择文件夹</button>
+                <div id="dirBrowser" class="dir-browser" style="display:none;">
+                    <div class="dir-header">
+                        <div id="dirBreadcrumb" class="dir-breadcrumb"></div>
+                        <button id="dirSelectBtn" class="btn btn-sm btn-primary" title="使用当前目录路径">✔ 选择</button>
+                    </div>
+                    <div id="dirList" class="dir-list"><div class="dir-loading">加载中...</div></div>
+                </div>
+            </span>
+            <input id="pathInput" class="path-input" placeholder="或粘贴路径后扫描..." title="输入目录路径后回车或点击扫描">
+            <button id="scanBtn" class="btn btn-secondary" title="扫描指定目录">📂 扫描</button>
+            <button id="refreshBtn" class="btn btn-primary">🔄 刷新</button>
+        </div>
+    </header>
+
+    <!-- Session 信息 -->
+    <section id="sessionInfo" class="session-bar" style="display:none;">
+        <span class="session-item">📁 <strong id="sCwd">-</strong></span>
+        <span class="session-item">🤖 <strong id="sModel">-</strong></span>
+        <span class="session-item">📝 <strong id="sTitle">-</strong></span>
+        <span class="session-item">🔢 <strong id="sTurns">-</strong> 轮</span>
+    </section>
+
+    <!-- 概览卡片 -->
+    <section class="overview-cards">
+            <div class="card"><div class="card-value" id="totalEvents">-</div><div class="card-label">事件数 <span id="parseBadge" class="parse-badge" style="display:none"></span></div></div>
+            <div class="card"><div class="card-value" id="totalTurns">-</div><div class="card-label">对话轮次</div></div>
+            <div class="card"><div class="card-value" id="internalTurns">-</div><div class="card-label">内部轮次</div></div>
+            <div class="card"><div class="card-value" id="totalTokens">-</div><div class="card-label">总 Tokens</div></div>
+        <div class="card"><div class="card-value" id="inputTokens">-</div><div class="card-label">输入 Tokens</div></div>
+        <div class="card"><div class="card-value" id="outputTokens">-</div><div class="card-label">输出 Tokens</div></div>
+        <div class="card"><div class="card-value" id="cacheTokens">-</div><div class="card-label">Cache 命中</div></div>
+        <div class="card"><div class="card-value" id="totalTools">-</div><div class="card-label">工具调用</div></div>
+        <div class="card"><div class="card-value" id="duration">-</div><div class="card-label">耗时</div></div>
+    </section>
+
+    <!-- 图表行 -->
+    <section class="charts-row">
+        <div class="chart-container">
+            <div class="chart-title">📈 事件类型分布</div>
+            <div id="chartTypePie" class="chart"></div>
+        </div>
+        <div class="chart-container">
+            <div class="chart-title">🔧 工具调用</div>
+            <div id="chartToolBar" class="chart"></div>
+        </div>
+    </section>
+
+    <section class="charts-row">
+        <div class="chart-container chart-full">
+            <div class="chart-title">💰 Token 用量追踪</div>
+            <div id="chartTokenBar" class="chart chart-timeline"></div>
+        </div>
+    </section>
+
+    <section class="charts-row">
+        <div class="chart-container">
+            <div class="chart-title">📊 Content Block 分布</div>
+            <div id="chartBlockPie" class="chart"></div>
+        </div>
+        <div class="chart-container">
+            <div class="chart-title">✅ 工具结果</div>
+            <div id="chartToolResult" class="chart"></div>
+        </div>
+    </section>
+
+    <!-- 对话时间线 -->
+    <section class="table-section">
+        <div class="section-header">
+            <h2>📋 对话时间线</h2>
+            <div class="table-controls">
+                <input type="text" id="searchInput" class="search-input" placeholder="搜索...">
+                <select id="filterType" class="filter-select">
+                    <option value="">全部类型</option>
+                    <option value="assistant">assistant</option>
+                    <option value="user">user (tool result)</option>
+                    <option value="system">system</option>
+                    <option value="result">result</option>
+                </select>
+            </div>
+        </div>
+        <div class="table-wrapper">
+            <table id="eventsTable">
+                <thead>
+                    <tr>
+                        <th style="width:50px">#</th>
+                        <th style="width:100px">时间</th>
+                        <th style="width:90px">类型</th>
+                        <th style="width:80px">工具</th>
+                        <th style="width:50px">状态</th>
+                        <th>摘要</th>
+                        <th style="width:80px">Tokens</th>
+                        <th style="width:60px">详情</th>
+                    </tr>
+                </thead>
+                <tbody id="eventsBody"></tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- 详情弹窗（双标签：内容 / JSON） -->
+    <div id="detailModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-tabs">
+                    <button class="modal-tab active" data-tab="content">📝 内容</button>
+                    <button class="modal-tab" data-tab="json">{ } JSON</button>
+                </div>
+                <span class="modal-close" onclick="closeModal()">&times;</span>
+            </div>
+            <div id="modalTabContent" class="modal-tab-body markdown-body"></div>
+            <pre id="modalTabJson" class="modal-body" style="display:none;"></pre>
+        </div>
+    </div>
+
+    <footer class="footer">
+        <span>CodeBuddy Headless Log Visualizer · 支持 .jsonl / .log</span>
+    </footer>
+
+    <script src="/static/js/dashboard.js"></script>
+</body>
+</html>
