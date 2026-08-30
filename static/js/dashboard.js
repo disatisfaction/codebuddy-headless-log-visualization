@@ -42,6 +42,12 @@ function bindEvents() {
     });
     document.getElementById("searchInput").addEventListener("input", debounce(filterTimeline, 250));
     document.getElementById("filterType").addEventListener("change", filterTimeline);
+    document.getElementById("fromIdx").addEventListener("input", debounce(filterTimeline, 200));
+    document.getElementById("toIdx").addEventListener("input", debounce(filterTimeline, 200));
+    document.getElementById("viewToggle").addEventListener("click", e => {
+        const btn = e.target.closest(".view-btn");
+        if (btn) switchTimelineView(btn.dataset.view);
+    });
     document.getElementById("detailModal").addEventListener("click", e => {
         if (e.target.id === "detailModal") closeModal();
         if (e.target.classList.contains("modal-tab")) {
@@ -445,8 +451,118 @@ function updateToolResult(results, usage) {
     });
 }
 
+// ---- Timeline Views ----
+let currentTimelineView = "table";
+let currentTimelineData = [];
+
+function switchTimelineView(view) {
+    currentTimelineView = view;
+    document.querySelectorAll("#viewToggle .view-btn").forEach(b =>
+        b.classList.toggle("active", b.dataset.view === view));
+    const table = document.getElementById("tableWrapper");
+    const flow = document.getElementById("flowView");
+    if (view === "flow") {
+        table.style.display = "none";
+        flow.style.display = "block";
+        renderFlowView(currentTimelineData);
+    } else {
+        flow.style.display = "none";
+        table.style.display = "";
+    }
+}
+
+// 流程图视图：从上到下展示所有 assistant 文本节点
+function renderFlowView(timeline) {
+    const flow = document.getElementById("flowView");
+    if (!timeline.length) {
+        flow.innerHTML = '<div class="flow-empty">暂无事件</div>';
+        return;
+    }
+    // 收集所有 assistant 事件的文本/思考块
+    const nodes = [];
+    timeline.forEach((e, i) => {
+        if (e.type !== "assistant") return;
+        (e.content_blocks || []).forEach(b => {
+            const text = b.has_text && b.text_full ? b.text_full.trim() : "";
+            const think = b.has_thinking && b.thinking_full ? b.thinking_full.trim() : "";
+            if (text || think) {
+                nodes.push({ idx: i, ts: e.timestamp || "", text, think });
+            }
+        });
+    });
+
+    if (!nodes.length) {
+        flow.innerHTML = '<div class="flow-empty">没有 assistant 文本节点</div>';
+        return;
+    }
+
+    let html = '<div class="flow-item">';
+    nodes.forEach((n, k) => {
+        html += `
+        <div class="flow-node flow-node-${n.text ? "text" : "thinking"}" data-idx="${n.idx}" onclick="flowNodeClick(${n.idx})">
+            <div class="flow-node-header">
+                <span class="flow-node-idx">#${n.idx + 1}</span>
+                ${n.ts ? `<span class="flow-node-time">${escHtml(n.ts)}</span>` : ""}
+                <span class="flow-node-block">${n.text ? "文本" : "思考"}</span>
+            </div>
+            <div class="flow-node-content">${escHtml((n.text || n.think))}</div>
+            <span class="flow-node-expand" style="display:none" onclick="event.stopPropagation();toggleFlowExpand(this)">展开全文</span>
+        </div>`;
+        if (k < nodes.length - 1) {
+            html += '<div class="flow-connector"></div>';
+        }
+    });
+    html += "</div>";
+    flow.innerHTML = html;
+
+    // 内容超长时显示遮罩与展开按钮
+    flow.querySelectorAll(".flow-node").forEach(node => {
+        const content = node.querySelector(".flow-node-content");
+        const expand = node.querySelector(".flow-node-expand");
+        if (content.scrollHeight > 180) {
+            content.classList.add("collapsed");
+            expand.style.display = "inline-block";
+        }
+    });
+}
+
+function toggleFlowExpand(el) {
+    const content = el.previousElementSibling;
+    const collapsed = content.classList.toggle("collapsed");
+    el.textContent = collapsed ? "展开全文" : "收起";
+}
+
+// 点击流程图节点：切换到表格视图并筛选该节点至下一个 assistant 文本之前的事件
+function flowNodeClick(idx) {
+    const timeline = currentTimelineData || analysisData?.timeline || [];
+    if (!timeline[idx]) return;
+    // 找到下一个含文本块的 assistant 事件作为终点（不含）
+    let end = timeline.length;
+    for (let j = idx + 1; j < timeline.length; j++) {
+        const e = timeline[j];
+        const hasText = (e.content_blocks || []).some(b => b.has_text && b.text_full && b.text_full.trim());
+        if (e.type === "assistant" && hasText) {
+            end = j;
+            break;
+        }
+    }
+    // 切到表格视图并应用范围筛选（1 基行号：idx+1 ~ end）
+    switchTimelineView("table");
+    setRangeFilter(idx + 1, end);
+    // 滚动到表格中的对应行
+    setTimeout(() => {
+        const row = document.querySelector(`#eventsBody tr[data-idx="${idx}"]`);
+        if (row) row.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 50);
+}
+
 // ---- Timeline Table ----
 function renderTimeline(timeline) {
+    currentTimelineData = timeline;
+    if (currentTimelineView === "flow") {
+        renderFlowView(timeline);
+        return;
+    }
     const tbody = document.getElementById("eventsBody");
     if (!timeline.length) {
         tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:32px;color:#8b90a0;">暂无事件</td></tr>';
@@ -472,7 +588,7 @@ function renderTimeline(timeline) {
             return '';
         }).filter(Boolean).join(' ');
 
-        return `<tr data-type="${escHtml(e.type)}" data-summary="${escHtml(e.summary)}">
+        return `<tr data-type="${escHtml(e.type)}" data-summary="${escHtml(e.summary)}" data-idx="${i}">
             <td>${i+1}</td>
             <td>${ts}</td>
             <td><span class="badge ${typeBadge}">${escHtml(e.type)}</span></td>
@@ -521,13 +637,29 @@ function badgeClass(type) {
 function filterTimeline() {
     const search = document.getElementById("searchInput").value.toLowerCase();
     const typeFilter = document.getElementById("filterType").value.toLowerCase();
+    // 行号范围筛选（1 基，含端点）
+    let fromNum = parseInt(document.getElementById("fromIdx").value, 10);
+    let toNum = parseInt(document.getElementById("toIdx").value, 10);
+    if (Number.isNaN(fromNum)) fromNum = -1;
+    if (Number.isNaN(toNum)) toNum = -1;
     document.querySelectorAll("#eventsBody tr").forEach(row => {
         const t = (row.dataset.type||"").toLowerCase();
         const s = (row.dataset.summary||"").toLowerCase();
+        const idx = parseInt(row.dataset.idx, 10); // 0 基事件索引
+        const lineNum = idx + 1;
         const typeMatch = !typeFilter || t === typeFilter;
         const searchMatch = !search || t.includes(search) || s.includes(search);
-        row.style.display = (typeMatch && searchMatch) ? "" : "none";
+        let rangeMatch = true;
+        if (fromNum > 0 && lineNum < fromNum) rangeMatch = false;
+        if (toNum > 0 && lineNum > toNum) rangeMatch = false;
+        row.style.display = (typeMatch && searchMatch && rangeMatch) ? "" : "none";
     });
+}
+
+function setRangeFilter(fromOneBased, toOneBased) {
+    document.getElementById("fromIdx").value = fromOneBased || "";
+    document.getElementById("toIdx").value = toOneBased || "";
+    filterTimeline();
 }
 
 // ---- Modal ----

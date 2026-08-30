@@ -152,14 +152,120 @@ body {
 .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
 .section-header h2 { font-size: 17px; font-weight: 600; }
 .table-controls { display: flex; gap: 10px; }
+
+/* 视图切换按钮 */
+.view-toggle {
+    display: inline-flex; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; overflow: hidden; flex-shrink: 0;
+}
+.view-btn {
+    padding: 7px 14px; font-size: 13px; cursor: pointer; color: var(--text-secondary);
+    background: transparent; border: none; transition: all 0.15s;
+}
+.view-btn:hover { color: var(--text); background: var(--bg-card-hover); }
+.view-btn.active { background: var(--accent); color: #fff; }
+
 .search-input, .filter-select {
     padding: 7px 12px; border-radius: 8px; border: 1px solid var(--border);
     background: var(--bg-card); color: var(--text); font-size: 13px;
 }
 .search-input { min-width: 200px; }
 .search-input:focus, .filter-select:focus { outline: none; border-color: var(--accent); }
+
+/* 行号范围筛选 */
+.range-filter {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 8px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg-card); flex-shrink: 0;
+}
+.range-label { font-size: 12px; color: var(--text-secondary); }
+.range-input {
+    width: 58px; padding: 4px 6px; border: none; background: transparent;
+    color: var(--text); font-size: 13px; text-align: center;
+    border-bottom: 1px dashed var(--border);
+}
+.range-input:focus { outline: none; border-bottom-color: var(--accent); }
+.range-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.range-input[type=number] { -moz-appearance: textfield; }
+.range-sep { color: var(--text-secondary); font-size: 12px; }
+.range-clear {
+    border: none; background: transparent; color: var(--text-secondary);
+    font-size: 14px; cursor: pointer; padding: 0 2px; line-height: 1;
+}
+.range-clear:hover { color: var(--accent-light); }
 .table-wrapper { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-card); }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
+
+/* ---- 流程图视图 ---- */
+.flow-view {
+    padding: 24px 16px; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--bg-card); max-height: 800px; overflow-y: auto;
+}
+.flow-empty {
+    text-align: center; color: var(--text-secondary); padding: 48px 0; font-size: 14px;
+}
+.flow-item {
+    display: flex; flex-direction: column; align-items: center;
+    max-width: 860px; margin: 0 auto;
+}
+.flow-node {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    border-left: 4px solid var(--accent); border-radius: 10px;
+    padding: 14px 18px; cursor: pointer; transition: all 0.15s;
+}
+.flow-node:hover {
+    border-color: var(--accent-light); box-shadow: 0 4px 20px rgba(108,92,231,0.18);
+    transform: translateY(-1px);
+}
+.flow-node.flow-node-text { border-left-color: var(--pink); }
+.flow-node.flow-node-thinking { border-left-color: var(--orange); }
+.flow-node-header {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;
+}
+.flow-node-idx {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px;
+    background: rgba(108,92,231,0.2); color: var(--accent-light);
+    font-weight: 600; font-size: 12px;
+}
+.flow-node-time { font-family: Consolas, monospace; }
+.flow-node-block {
+    padding: 2px 8px; border-radius: 4px; font-size: 11px;
+    background: rgba(162,155,254,0.15); color: var(--accent-light);
+}
+.flow-node-content {
+    font-size: 13px; line-height: 1.7; color: var(--text);
+    white-space: pre-wrap; word-break: break-word;
+    max-height: 180px; overflow: hidden; position: relative;
+}
+.flow-node-content.collapsed::after {
+    content: ""; position: absolute; bottom: 0; left: 0; right: 0;
+    height: 40px; background: linear-gradient(transparent, var(--bg));
+}
+.flow-node-expand {
+    display: inline-block; margin-top: 6px; font-size: 12px;
+    color: var(--blue); cursor: pointer; user-select: none;
+}
+.flow-node-expand:hover { text-decoration: underline; }
+/* 连接线 */
+.flow-connector {
+    width: 2px; height: 28px; background: linear-gradient(var(--accent-light), rgba(108,92,231,0.25));
+    position: relative; margin: 0 auto; flex-shrink: 0;
+}
+.flow-connector::after {
+    content: ""; position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
+    border: 4px solid transparent; border-top: 6px solid var(--accent-light);
+}
+.flow-connector.flow-gap::before {
+    content: ""; position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    width: 6px; height: 6px; border-radius: 50%; background: var(--text-secondary);
+}
+.flow-connector .flow-gap-label {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    top: 20px; font-size: 11px; color: var(--text-secondary);
+    background: var(--bg-card); padding: 0 6px; white-space: nowrap;
+}
 th {
     background: rgba(108,92,231,0.1); padding: 10px 12px;
     text-align: left; font-weight: 600; color: var(--text);

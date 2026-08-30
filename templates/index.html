@@ -88,6 +88,10 @@
         <div class="section-header">
             <h2>📋 对话时间线</h2>
             <div class="table-controls">
+                <div class="view-toggle" id="viewToggle">
+                    <button class="view-btn active" data-view="table" title="表格视图">📋 表格</button>
+                    <button class="view-btn" data-view="flow" title="流程图视图">🔀 流程图</button>
+                </div>
                 <input type="text" id="searchInput" class="search-input" placeholder="搜索...">
                 <select id="filterType" class="filter-select">
                     <option value="">全部类型</option>
@@ -96,9 +100,15 @@
                     <option value="system">system</option>
                     <option value="result">result</option>
                 </select>
+                <div class="range-filter">
+                    <span class="range-label">行号</span>
+                    <input type="number" id="fromIdx" class="range-input" min="1" placeholder="从" title="起始行号">
+                    <span class="range-sep">~</span>
+                    <input type="number" id="toIdx" class="range-input" min="1" placeholder="至" title="结束行号">
+                </div>
             </div>
         </div>
-        <div class="table-wrapper">
+        <div class="table-wrapper" id="tableWrapper">
             <table id="eventsTable">
                 <thead>
                     <tr>
@@ -115,6 +125,7 @@
                 <tbody id="eventsBody"></tbody>
             </table>
         </div>
+        <div id="flowView" class="flow-view" style="display:none;"></div>
     </section>
 
     <!-- 详情弹窗（双标签：内容 / JSON） -->
