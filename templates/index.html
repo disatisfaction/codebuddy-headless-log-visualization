@@ -106,6 +106,7 @@
                     <span class="range-sep">~</span>
                     <input type="number" id="toIdx" class="range-input" min="1" placeholder="至" title="结束行号">
                 </div>
+                <button id="resetFilterBtn" class="btn btn-secondary btn-sm" title="重置所有筛选条件">🔄 重置</button>
             </div>
         </div>
         <div class="table-wrapper" id="tableWrapper">
@@ -132,6 +133,7 @@
     <div id="detailModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
+                <span id="modalTitle" class="modal-title">事件详情</span>
                 <div class="modal-tabs">
                     <button class="modal-tab active" data-tab="content">📝 内容</button>
                     <button class="modal-tab" data-tab="json">{ } JSON</button>

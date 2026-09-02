@@ -86,7 +86,9 @@ def normalize_event(raw: dict) -> dict:
             base["tools"] = raw.get("tools", [])
             base["slash_commands"] = raw.get("slash_commands", [])
             base["output_style"] = raw.get("output_style", "")
-        base["summary"] = f"[system/{subtype}]"
+        elif subtype == "custom_title":
+            base["custom_title"] = raw.get("custom_title", "")
+        base["summary"] = base["custom_title"] if subtype == "custom_title" else f"[system/{subtype}]"
 
     elif etype == "file-history-snapshot":
         backups = raw.get("snapshot", {}).get("trackedFileBackups", {})
@@ -424,6 +426,7 @@ def analyze_logs(filepath: str) -> dict:
             "usage": e.get("usage"),
             "content_blocks": e.get("content_blocks", []),
             "result_text": e.get("result_text", ""),
+            "custom_title": e.get("custom_title", ""),
         }
         timeline.append(item)
 
@@ -622,5 +625,5 @@ def raw_events():
 if __name__ == "__main__":
     os.makedirs(LOG_DIR, exist_ok=True)
     print(f"[*] 日志目录: {LOG_DIR}")
-    print(f"[*] Dashboard: http://0.0.0.0:5000")
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    print(f"[*] Dashboard: http://0.0.0.0:5678")
+    app.run(host="0.0.0.0", port=5678, debug=True)

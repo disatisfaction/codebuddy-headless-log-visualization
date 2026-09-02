@@ -4,6 +4,9 @@
 
 let currentFile = "";
 let analysisData = null;
+let flowToolFilter = new Set(); // 流程图工具标签筛选（空 = 全部）
+let activeFlowNodeIdx = null; // 流程图最近一次点击跳转过的节点（用于显示标记）
+let flowScrollTop = 0; // 流程图内部滚动位置记忆
 let chartTypePie, chartToolBar, chartTokenBar, chartBlockPie, chartToolResult;
 
 // marked config (offline)
@@ -44,9 +47,24 @@ function bindEvents() {
     document.getElementById("filterType").addEventListener("change", filterTimeline);
     document.getElementById("fromIdx").addEventListener("input", debounce(filterTimeline, 200));
     document.getElementById("toIdx").addEventListener("input", debounce(filterTimeline, 200));
+    document.getElementById("resetFilterBtn").addEventListener("click", resetFilters);
     document.getElementById("viewToggle").addEventListener("click", e => {
         const btn = e.target.closest(".view-btn");
         if (btn) switchTimelineView(btn.dataset.view);
+    });
+    // 流程图工具标签筛选
+    document.getElementById("flowView").addEventListener("click", e => {
+        const btn = e.target.closest(".flow-filter-tag");
+        if (!btn) return;
+        const tool = btn.dataset.tool;
+        if (tool === "__all__") {
+            flowToolFilter.clear();
+        } else if (flowToolFilter.has(tool)) {
+            flowToolFilter.delete(tool);
+        } else {
+            flowToolFilter.add(tool);
+        }
+        renderFlowView(currentTimelineData);
     });
     document.getElementById("detailModal").addEventListener("click", e => {
         if (e.target.id === "detailModal") closeModal();
@@ -75,14 +93,19 @@ async function loadFileList() {
     const data = await api("/api/files");
     const sel = document.getElementById("fileSelector");
     sel.innerHTML = '<option value="">-- 选择日志文件 --</option>';
+    let fileExists = false;
     if (data?.files) {
         data.files.forEach(f => {
             const o = document.createElement("option");
             o.value = f.path;
             o.textContent = `${f.name} (${fsize(f.size)})`;
             sel.appendChild(o);
+            if (currentFile && f.path === currentFile) fileExists = true;
         });
-        if (!currentFile && data.files.length) {
+        // 当前查看的文件仍存在时保持选中，不跳回默认项
+        if (currentFile && fileExists) {
+            sel.value = currentFile;
+        } else if (!currentFile && data.files.length) {
             currentFile = data.files[0].path;
             sel.value = currentFile;
             loadAll();
@@ -313,7 +336,7 @@ function updateCharts(data) {
 
 function updateTypePie(dist) {
     if (!dist || !Object.keys(dist).length) {
-        chartTypePie.setOption({ ...chartBase(), title: { text: "暂无数据", left: "center", top: "center", textStyle: { color: "#8b90a0" } } });
+        chartTypePie.setOption({ ...chartBase(), title: { text: "暂无数据", left: "center", top: "center", textStyle: { color: "#8b90a0" } } }, true);
         return;
     }
     const entries = Object.entries(dist).sort((a,b)=>b[1]-a[1]);
@@ -328,12 +351,12 @@ function updateTypePie(dist) {
             label: { show: false },
             data: entries.map(([n,v],i)=>({name: n, value: v, itemStyle:{color:colors[i%colors.length]}})),
         }],
-    });
+    }, true);
 }
 
 function updateToolBar(usage) {
     if (!usage || !Object.keys(usage).length) {
-        chartToolBar.setOption({ ...chartBase(), title: { text: "暂无工具调用", left: "center", top: "center", textStyle: { color: "#8b90a0" } } });
+        chartToolBar.setOption({ ...chartBase(), title: { text: "暂无工具调用", left: "center", top: "center", textStyle: { color: "#8b90a0" } } }, true);
         return;
     }
     const entries = Object.entries(usage).sort((a,b)=>b[1]-a[1]).slice(0, 10);
@@ -354,7 +377,7 @@ function updateToolBar(usage) {
             },
             barWidth: 16,
         }],
-    });
+    }, true);
 }
 
 function updateTokenBar(data) {
@@ -378,7 +401,7 @@ function updateTokenBar(data) {
     });
 
     if (!points.length) {
-        chartTokenBar.setOption({ ...chartBase(), title: { text: "暂无 Token 数据", left: "center", top: "center", textStyle: { color: "#8b90a0" } } });
+        chartTokenBar.setOption({ ...chartBase(), title: { text: "暂无 Token 数据", left: "center", top: "center", textStyle: { color: "#8b90a0" } } }, true);
         return;
     }
     chartTokenBar.setOption({
@@ -397,7 +420,7 @@ function updateTokenBar(data) {
             { name: "Cache 读", type: "bar", stack: "tokens", data: points.map(p=>p.cache_read), itemStyle: { color: "#a29bfe" } },
             { name: "Cache 写", type: "bar", stack: "tokens", data: points.map(p=>p.cache_creation), itemStyle: { color: "#fdcb6e" } },
         ],
-    });
+    }, true);
 }
 
 function updateBlockPie(timeline) {
@@ -410,7 +433,7 @@ function updateBlockPie(timeline) {
         });
     });
     if (!Object.keys(blockCounts).length) {
-        chartBlockPie.setOption({ ...chartBase(), title: { text: "暂无 Block 数据", left: "center", top: "center", textStyle: { color: "#8b90a0" } } });
+        chartBlockPie.setOption({ ...chartBase(), title: { text: "暂无 Block 数据", left: "center", top: "center", textStyle: { color: "#8b90a0" } } }, true);
         return;
     }
     const entries = Object.entries(blockCounts);
@@ -425,14 +448,14 @@ function updateBlockPie(timeline) {
             label: { show: true, formatter: "{b}\n{d}%", fontSize: 11, color: "#e1e4ea" },
             data: entries.map(([n,v]) => ({ name: n, value: v, itemStyle: { color: colors[n] || "#dfe6e9" } })),
         }],
-    });
+    }, true);
 }
 
 function updateToolResult(results, usage) {
     const ok = results.ok || results.success || 0;
     const err = results.error || 0;
     if (!results || (ok === 0 && err === 0)) {
-        chartToolResult.setOption({ ...chartBase(), title: { text: "暂无工具结果", left: "center", top: "center", textStyle: { color: "#8b90a0" } } });
+        chartToolResult.setOption({ ...chartBase(), title: { text: "暂无工具结果", left: "center", top: "center", textStyle: { color: "#8b90a0" } } }, true);
         return;
     }
     chartToolResult.setOption({
@@ -448,7 +471,7 @@ function updateToolResult(results, usage) {
                 { name: "失败", value: err, itemStyle: { color: "#e17055" } },
             ],
         }],
-    });
+    }, true);
 }
 
 // ---- Timeline Views ----
@@ -463,10 +486,16 @@ function switchTimelineView(view) {
     const flow = document.getElementById("flowView");
     if (view === "flow") {
         table.style.display = "none";
-        flow.style.display = "block";
+        flow.style.display = "flex";
         renderFlowView(currentTimelineData);
+        // 外部滚轮：让流程图大框回到页面中央
+        flow.scrollIntoView({ behavior: "smooth", block: "center" });
     } else {
+        // 记录内部滚动位置，供切回时恢复
+        const sc = flow.querySelector(".flow-scroll");
+        if (sc) flowScrollTop = sc.scrollTop;
         flow.style.display = "none";
+        flow.style.height = "";
         table.style.display = "";
     }
 }
@@ -478,15 +507,57 @@ function renderFlowView(timeline) {
         flow.innerHTML = '<div class="flow-empty">暂无事件</div>';
         return;
     }
-    // 收集所有 assistant 事件的文本/思考块
+    // 全局构建 tool_id → tool_result 摘要映射（与后端关联逻辑一致）
+    const resultMap = {};
+    timeline.forEach((e, i) => {
+        if (e.type !== "user") return;
+        (e.content_blocks || []).forEach((b, bi) => {
+            if (b.block_type === "tool_result" && b.tool_use_id) {
+                const preview = (b.text_preview || "").slice(0, 120);
+                const rpath = b.parent_tool_file_path || "";
+                resultMap[b.tool_use_id] = {
+                    preview,
+                    error: !!b.is_error,
+                    eventIdx: i,   // tool_result 所在 user 事件索引
+                    blockIdx: bi,  // tool_result 块在事件中的索引
+                    filePath: rpath,
+                    // 对齐表格视图 user 行摘要：[tool_result/ok] @ path | preview
+                    summary: `[tool_result/${b.is_error ? "error" : "ok"}]`
+                        + (rpath ? ` @ ${rpath}` : "")
+                        + (preview ? ` | ${preview}` : ""),
+                };
+            }
+        });
+    });
+    // 收集所有 assistant 事件的文本/思考块及工具调用
+    // 每个文本节点显示"它之后紧接着调用"的工具（文本引导工具调用）：
+    // 遇到文本节点即开始收集，遇到下一个文本节点则停止，中途的工具归属当前文本节点
     const nodes = [];
+    let openNode = null; // 正在收集工具的文本节点
     timeline.forEach((e, i) => {
         if (e.type !== "assistant") return;
-        (e.content_blocks || []).forEach(b => {
+        (e.content_blocks || []).forEach((b, bi) => {
             const text = b.has_text && b.text_full ? b.text_full.trim() : "";
             const think = b.has_thinking && b.thinking_full ? b.thinking_full.trim() : "";
             if (text || think) {
-                nodes.push({ idx: i, ts: e.timestamp || "", text, think });
+                // 新文本节点出现，上一个节点停止收集
+                openNode = { idx: i, ts: e.timestamp || "", text, think, tools: [] };
+                nodes.push(openNode);
+            } else if (b.has_tool && b.tool_name) {
+                if (!openNode) return; // 没有打开的文本节点，工具不归属任何节点
+                const fp = b.tool_file_path || "";
+                openNode.tools.push({
+                    name: b.defer_tool_name || b.tool_name,
+                    rawName: b.tool_name || "",
+                    deferName: b.defer_tool_name || "",
+                    filePath: fp,
+                    id: b.tool_id || "",
+                    result: resultMap[b.tool_id] || null,
+                    eventIdx: i,   // 工具调用所在 assistant 事件索引
+                    blockIdx: bi,  // 工具调用块在事件中的索引
+                    // 对齐表格视图 assistant 工具行摘要：[工具] name @ path
+                    summary: `[工具] ${b.tool_name || b.defer_tool_name}` + (fp ? ` @ ${fp}` : ""),
+                });
             }
         });
     });
@@ -496,23 +567,152 @@ function renderFlowView(timeline) {
         return;
     }
 
-    let html = '<div class="flow-item">';
-    nodes.forEach((n, k) => {
-        html += `
-        <div class="flow-node flow-node-${n.text ? "text" : "thinking"}" data-idx="${n.idx}" onclick="flowNodeClick(${n.idx})">
-            <div class="flow-node-header">
-                <span class="flow-node-idx">#${n.idx + 1}</span>
-                ${n.ts ? `<span class="flow-node-time">${escHtml(n.ts)}</span>` : ""}
-                <span class="flow-node-block">${n.text ? "文本" : "思考"}</span>
-            </div>
-            <div class="flow-node-content">${escHtml((n.text || n.think))}</div>
-            <span class="flow-node-expand" style="display:none" onclick="event.stopPropagation();toggleFlowExpand(this)">展开全文</span>
-        </div>`;
-        if (k < nodes.length - 1) {
-            html += '<div class="flow-connector"></div>';
+    // 统计每个工具出现在多少个节点中
+    const toolCount = new Map();
+    nodes.forEach(n => n.tools.forEach(t => {
+        toolCount.set(t.name, (toolCount.get(t.name) || 0) + 1);
+    }));
+    const toolNames = [...toolCount.keys()].sort();
+
+    // 工具筛选区（左上角）
+    let html = '<div class="flow-filter">';
+    html += '<span class="flow-filter-title">工具筛选</span>';
+    html += `<button class="flow-filter-tag${flowToolFilter.size === 0 ? " active" : ""}" data-tool="__all__">全部 (${nodes.length})</button>`;
+    toolNames.forEach(name => {
+        html += `<button class="flow-filter-tag${flowToolFilter.has(name) ? " active" : ""}" data-tool="${escHtml(name)}">${escHtml(name)} (${toolCount.get(name)})</button>`;
+    });
+    html += '</div>';
+
+    // 按选中的工具标签过滤节点
+    let shown = nodes;
+    if (flowToolFilter.size > 0) {
+        shown = nodes.filter(n => n.tools.some(t => flowToolFilter.has(t.name)));
+    }
+    if (!shown.length) {
+        flow.innerHTML = html + '<div class="flow-main"><div class="flow-scroll"><div class="flow-empty">没有匹配该工具筛选的节点</div></div></div>';
+        return;
+    }
+
+    // ---- 对话划分：system/init 事件为对话开头，直到 result 事件为对话结尾 ----
+    // custom_title 事件（位于 init 之前）可为紧随其后的对话指定标题
+    const convoRanges = [];
+    let cur = null;
+    let pendingTitle = "";
+    timeline.forEach((e, i) => {
+        if (e.type === "system" && e.subtype === "custom_title") {
+            pendingTitle = e.custom_title || "";
+        } else if (e.type === "system" && e.subtype === "init") {
+            cur = { start: i, end: i, title: pendingTitle || "" };
+            pendingTitle = ""; // 标题只作用于紧随其后的对话
+            convoRanges.push(cur);
+        } else if (cur) {
+            cur.end = i;
+            if (e.type === "result") cur = null; // 对话结束
         }
     });
-    html += "</div>";
+    // 将过滤后的节点按事件索引归入所属对话；不在任何对话范围内的归入"未分组"
+    const groups = [];
+    convoRanges.forEach((c, gi) => {
+        const gNodes = shown.filter(n => n.idx >= c.start && n.idx <= c.end);
+        if (gNodes.length) {
+            groups.push({ id: `flow-convo-${gi}`, label: c.title || `对话 ${gi + 1}`, nodes: gNodes });
+        }
+    });
+    const rest = shown.filter(n => !convoRanges.some(c => n.idx >= c.start && n.idx <= c.end));
+    if (rest.length) groups.push({ id: "flow-convo-rest", label: "未分组", nodes: rest });
+
+    // 单节点行构建（节点框 + 右侧工具展开框）
+    const buildRow = (n, rowId) => {
+        const hasTools = n.tools.length > 0;
+        const toolsHtml = hasTools
+            ? n.tools.map(t => {
+                // 对齐表格视图外层显示（getToolNames）：工具名 + 文件路径提示 + defer 提示
+                let nameHtml = `⚙ ${escHtml(t.rawName || t.name)}`;
+                if (t.filePath && /^(Read|Write|Edit|WriteFile|MultiEdit)$/i.test(t.rawName)) {
+                    const fn = t.filePath.replace(/\\/g, "/").split("/").pop();
+                    nameHtml += ` <span class="file-path-hint">${escHtml(fn)}</span>`;
+                }
+                if (t.deferName) {
+                    nameHtml += ` <span class="defer-hint">→${escHtml(t.deferName)}</span>`;
+                }
+                return `
+            <div class="flow-tool-card">
+                <div class="flow-tool-head">
+                    <span class="flow-tool-name">${nameHtml}</span>
+                    ${t.result ? `<span class="flow-tool-status ${t.result.error ? "err" : "ok"}">${t.result.error ? "失败" : "成功"}</span>` : ""}
+                </div>
+                ${t.summary ? `<div class="flow-tool-summary">${escHtml(t.summary)}</div>` : ""}
+                ${t.result
+                    ? `<div class="flow-tool-result${t.result.error ? " err" : ""}">${escHtml(t.result.summary)}</div>`
+                    : '<div class="flow-tool-result muted">（无结果文本）</div>'}
+                <div class="flow-tool-actions">
+                    <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();showToolDetail(${t.eventIdx}, ${t.blockIdx})">工具详情</button>
+                    ${t.result && t.result.eventIdx !== undefined
+                        ? `<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();showResultDetail(${t.result.eventIdx}, ${t.result.blockIdx})">结果详情</button>`
+                        : ""}
+                </div>
+            </div>`;
+            }).join("")
+            : '<div class="flow-tool-card muted">（该节点无工具调用）</div>';
+        // 工具标签列：同名工具合并，重复时显示 *n
+        const tagCounts = new Map();
+        n.tools.forEach(t => tagCounts.set(t.name, (tagCounts.get(t.name) || 0) + 1));
+        const tagsHtml = hasTools
+            ? `<div class="flow-node-tags">${[...tagCounts.entries()].map(([name, cnt]) =>
+                `<span class="flow-node-tag" title="${escHtml(name)}">⚙ ${escHtml(name)}${cnt > 1 ? ` *${cnt}` : ""}</span>`).join("")}</div>`
+            : '<div class="flow-node-tags"><span class="flow-node-tag muted">无工具</span></div>';
+        return `
+        <div class="flow-row" id="${rowId}">
+            <div class="flow-node flow-node-${n.text ? "text" : "thinking"}${n.idx === activeFlowNodeIdx ? " flow-node-active" : ""}" data-idx="${n.idx}">
+                <div class="flow-node-jump" title="点击跳转到表格视图并筛选该节点" onclick="flowNodeClick(${n.idx})"></div>
+                <div class="flow-node-meta">
+                    <span class="flow-node-idx">#${n.idx + 1}</span>
+                    ${n.ts ? `<span class="flow-node-time">${escHtml(n.ts)}</span>` : ""}
+                </div>
+                <div class="flow-node-body">
+                    <div class="flow-node-content">${escHtml((n.text || n.think))}</div>
+                    <span class="flow-node-expand" style="display:none" onclick="event.stopPropagation();toggleFlowExpand(this)">展开全文</span>
+                </div>
+                ${tagsHtml}
+                <span class="flow-node-bubble${hasTools ? "" : " empty"}" title="${hasTools ? "查看工具调用" : "无工具调用"}" onclick="event.stopPropagation();toggleFlowTools(this)">⚙</span>
+            </div>
+            <div class="flow-tools" style="display:none">${toolsHtml}</div>
+        </div>`;
+    };
+
+    // 左侧目录（两级：对话 → 节点，二级默认折叠）
+    // 一级项拆分为两个触发区：箭头=展开/折叠，标签文字=滚动跳转到对话
+    let toc = '<div class="flow-toc"><div class="flow-toc-header">'
+        + '<span class="flow-toc-title">目录</span>'
+        + '<div class="flow-toc-actions">'
+        + '<button class="flow-toc-btn" onclick="flowTocExpandAll(true)">全部展开</button>'
+        + '<button class="flow-toc-btn" onclick="flowTocExpandAll(false)">全部折叠</button>'
+        + '</div></div>';
+    groups.forEach(g => {
+        toc += `<div class="flow-toc-item convo" data-group="${g.id}">`
+            + `<span class="flow-toc-arrow" title="展开/折叠二级节点" onclick="flowTocToggle('${g.id}')">▸</span>`
+            + `<span class="flow-toc-label" title="滚动到${escHtml(g.label)}" onclick="flowTocJump('${g.id}')">${escHtml(g.label)}</span>`
+            + `</div>`;
+        toc += `<div class="flow-toc-sub" data-group="${g.id}" style="display:none">`;
+        g.nodes.forEach((n, ni) => {
+            const brief = (n.text || n.think || "").replace(/\s+/g, " ").trim().slice(0, 20);
+            toc += `<div class="flow-toc-item node" title="滚动到 #${n.idx + 1}" onclick="flowTocScroll('${g.id}-node-${ni}')">#${n.idx + 1} ${escHtml(brief)}</div>`;
+        });
+        toc += '</div>';
+    });
+    toc += '</div>';
+
+    // 主体：每个对话一个虚线框，把其下所有节点框起来
+    html += '<div class="flow-main">' + toc + '<div class="flow-scroll"><div class="flow-item">';
+    groups.forEach(g => {
+        html += `<div class="flow-convo" id="${g.id}"><div class="flow-convo-header">${escHtml(g.label)} · ${g.nodes.length} 个节点</div><div class="flow-convo-body">`;
+        g.nodes.forEach((n, ni) => {
+            html += buildRow(n, `${g.id}-node-${ni}`);
+            if (ni < g.nodes.length - 1) html += '<div class="flow-connector"></div>';
+        });
+        html += '</div></div>';
+    });
+    html += "</div></div></div>";
     flow.innerHTML = html;
 
     // 内容超长时显示遮罩与展开按钮
@@ -524,6 +724,56 @@ function renderFlowView(timeline) {
             expand.style.display = "inline-block";
         }
     });
+    // 恢复内部滚动位置（新 DOM 重建后，clamp 防越界）
+    const sc = flow.querySelector(".flow-scroll");
+    if (sc) sc.scrollTop = Math.min(flowScrollTop, sc.scrollHeight);
+}
+
+// 目录点击：在流程图滚动区内部平滑滚动到目标元素
+function flowTocScroll(id) {
+    const sc = document.querySelector("#flowView .flow-scroll");
+    if (!sc) return;
+    const target = sc.querySelector("#" + id);
+    if (!target) return;
+    const top = target.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop;
+    sc.scrollTo({ top: Math.max(0, top - 8), behavior: "smooth" });
+}
+
+// 目录一级项箭头：仅展开/折叠二级节点
+function flowTocToggle(id) {
+    const sub = document.querySelector(`#flowView .flow-toc-sub[data-group="${id}"]`);
+    if (!sub) return;
+    const closed = sub.style.display === "none";
+    sub.style.display = closed ? "flex" : "none";
+    const arrow = document.querySelector(`#flowView .flow-toc-item.convo[data-group="${id}"] .flow-toc-arrow`);
+    if (arrow) arrow.textContent = closed ? "▾" : "▸";
+}
+
+// 目录一级项标签：滚动到该对话
+function flowTocJump(id) {
+    flowTocScroll(id);
+}
+
+// 全部展开/折叠二级节点
+function flowTocExpandAll(expand) {
+    document.querySelectorAll("#flowView .flow-toc-sub").forEach(sub => {
+        sub.style.display = expand ? "flex" : "none";
+    });
+    document.querySelectorAll("#flowView .flow-toc-arrow").forEach(arrow => {
+        arrow.textContent = expand ? "▾" : "▸";
+    });
+}
+
+// 点击节点右侧圆圈：展开/收起工具调用框
+function toggleFlowTools(bubble) {
+    const node = bubble.closest(".flow-node");
+    if (!node) return;
+    const tools = node.parentElement.querySelector(".flow-tools");
+    if (!tools) return;
+    const open = tools.style.display !== "none";
+    tools.style.display = open ? "none" : "flex";
+    bubble.classList.toggle("open", !open);
+    bubble.title = open ? "查看工具调用" : "收起工具调用";
 }
 
 function toggleFlowExpand(el) {
@@ -536,6 +786,7 @@ function toggleFlowExpand(el) {
 function flowNodeClick(idx) {
     const timeline = currentTimelineData || analysisData?.timeline || [];
     if (!timeline[idx]) return;
+    activeFlowNodeIdx = idx; // 记录该节点为"已跳转"，流程图上的标记保留
     // 找到下一个含文本块的 assistant 事件作为终点（不含）
     let end = timeline.length;
     for (let j = idx + 1; j < timeline.length; j++) {
@@ -559,10 +810,6 @@ function flowNodeClick(idx) {
 // ---- Timeline Table ----
 function renderTimeline(timeline) {
     currentTimelineData = timeline;
-    if (currentTimelineView === "flow") {
-        renderFlowView(timeline);
-        return;
-    }
     const tbody = document.getElementById("eventsBody");
     if (!timeline.length) {
         tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:32px;color:#8b90a0;">暂无事件</td></tr>';
@@ -602,6 +849,10 @@ function renderTimeline(timeline) {
             <td><button class="btn btn-secondary btn-sm" onclick="showDetail(${i})">详情</button></td>
         </tr>`;
     }).join("");
+    // 当前处于流程图视图时同步渲染流程图
+    if (currentTimelineView === "flow") {
+        renderFlowView(timeline);
+    }
 }
 
 function getToolNames(e) {
@@ -662,21 +913,61 @@ function setRangeFilter(fromOneBased, toOneBased) {
     filterTimeline();
 }
 
+// 重置表格视图的所有筛选条件
+function resetFilters() {
+    document.getElementById("searchInput").value = "";
+    document.getElementById("filterType").value = "";
+    document.getElementById("fromIdx").value = "";
+    document.getElementById("toIdx").value = "";
+    activeFlowNodeIdx = null; // 清除流程图节点的跳转标记
+    filterTimeline();
+    // 若流程图视图可见，立即重渲染以移除节点高亮
+    const flow = document.getElementById("flowView");
+    if (flow && flow.style.display !== "none" && currentTimelineData) {
+        renderFlowView(currentTimelineData);
+    }
+}
+
 // ---- Modal ----
 let currentModalEvent = null;
 let currentModalTab = "content";
 
-function showDetail(idx) {
+// 打开工具调用（tool_use 块）的详情
+function showToolDetail(eventIdx, blockIdx) {
+    showDetail(eventIdx, { block: blockIdx });
+}
+
+// 打开工具结果（tool_result 块）的详情
+function showResultDetail(eventIdx, blockIdx) {
+    showDetail(eventIdx, { block: blockIdx });
+}
+
+function showDetail(idx, opts) {
+    opts = opts || {};
     const timeline = analysisData?.timeline || [];
     const event = timeline[idx];
     if (!event) return;
+    event._index = idx + 1;
     currentModalEvent = event;
     currentModalTab = "content";
 
-    // 渲染内容
-    renderModalContent(event);
-    // 渲染 JSON
-    const display = {
+    // 弹窗标题：聚焦单块时显示工具/结果详情，否则事件详情
+    const titleEl = document.getElementById("modalTitle");
+    if (titleEl) {
+        if (opts.block !== undefined) {
+            const fblock = (event.content_blocks || [])[opts.block];
+            if (fblock && fblock.has_tool && fblock.tool_name) titleEl.textContent = `工具详情 · ${fblock.tool_name}`;
+            else if (fblock && fblock.block_type === "tool_result") titleEl.textContent = "工具结果详情";
+            else titleEl.textContent = "事件详情";
+        } else {
+            titleEl.textContent = `事件详情 · #${idx + 1}`;
+        }
+    }
+
+    // 渲染内容（聚焦单块时仅渲染该块）
+    renderModalContent(event, opts);
+    // 渲染 JSON（聚焦单块时仅显示该块）
+    let display = {
         _index: idx + 1,
         type: event.type,
         subtype: event.subtype,
@@ -688,6 +979,15 @@ function showDetail(idx) {
         block_count: event.block_count,
         content_blocks: event.content_blocks,
     };
+    if (opts.block !== undefined && event.content_blocks && event.content_blocks[opts.block]) {
+        display = {
+            _index: idx + 1,
+            _block_index: opts.block,
+            type: event.type,
+            timestamp: event.timestamp,
+            content_block: event.content_blocks[opts.block],
+        };
+    }
     document.getElementById("modalTabJson").textContent = JSON.stringify(display, null, 2);
 
     // 切换 tab
@@ -699,30 +999,51 @@ function showDetail(idx) {
     document.getElementById("detailModal").classList.add("active");
 }
 
-function renderModalContent(event) {
+function renderModalContent(event, opts) {
+    opts = opts || {};
     const container = document.getElementById("modalTabContent");
     const grepDataMap = {};
     const readBlocksMap = {};
     let md = "";
 
-    // 头部信息
-    md += `### ${event.type} \`#${event._index || "?"}\`\n`;
-    if (event.subtype) md += `- **子类型**: ${escHtml(event.subtype)}\n`;
-    if (event.timestamp) md += `- **时间**: ${escHtml(event.timestamp)}\n`;
-    if (event.tool_status) md += `- **状态**: ${escHtml(event.tool_status)}\n`;
-    if (event.usage) {
-        md += `- **Tokens**: 输入 ${event.usage.input_tokens||0} + 输出 ${event.usage.output_tokens||0}`;
-        if (event.usage.cache_read) md += ` (cache: ${event.usage.cache_read})`;
-        md += `\n`;
+    // 头部信息（聚焦单块时：工具详情来源即工具自身，无需头部；结果详情保留关联信息）
+    const focusedBlock = opts.block !== undefined ? (event.content_blocks || [])[opts.block] : null;
+    if (focusedBlock) {
+        if (focusedBlock.block_type === "tool_result") {
+            md += `### 📥 工具结果\n`;
+            md += `- **来源事件**: \`#${event._index || "?"}\` (${escHtml(event.type)}) ${escHtml(event.timestamp || "")}\n`;
+            if (focusedBlock.tool_use_id) md += `- **tool_use_id**: \`${escHtml(focusedBlock.tool_use_id)}\`\n`;
+            if (focusedBlock.is_error) md += `- **状态**: \`error\`\n`;
+            if (focusedBlock.parent_tool_name) md += `- **父工具**: \`${escHtml(focusedBlock.parent_tool_name)}\`\n`;
+            if (focusedBlock.parent_tool_file_path) md += fmtFileBadge(focusedBlock.parent_tool_file_path);
+            md += `\n---\n\n`;
+        } else if (!(focusedBlock.has_tool && focusedBlock.tool_name)) {
+            md += `### 详情\n`;
+            md += `- **来源事件**: \`#${event._index || "?"}\` (${escHtml(event.type)}) ${escHtml(event.timestamp || "")}\n`;
+            md += `\n---\n\n`;
+        }
+        // has_tool 聚焦时：不渲染任何头部，正文块直接展示工具调用内容
+    } else {
+        md += `### ${event.type} \`#${event._index || "?"}\`\n`;
+        if (event.subtype) md += `- **子类型**: ${escHtml(event.subtype)}\n`;
+        if (event.timestamp) md += `- **时间**: ${escHtml(event.timestamp)}\n`;
+        if (event.tool_status) md += `- **状态**: ${escHtml(event.tool_status)}\n`;
+        if (event.usage) {
+            md += `- **Tokens**: 输入 ${event.usage.input_tokens||0} + 输出 ${event.usage.output_tokens||0}`;
+            if (event.usage.cache_read) md += ` (cache: ${event.usage.cache_read})`;
+            md += `\n`;
+        }
+        if (event.stop_reason) md += `- **停止原因**: ${escHtml(event.stop_reason)}\n`;
+        md += `\n---\n\n`;
     }
-    if (event.stop_reason) md += `- **停止原因**: ${escHtml(event.stop_reason)}\n`;
-    md += `\n---\n\n`;
 
-    // Content blocks
+    // Content blocks（聚焦单块时仅渲染该块）
     const blocks = event.content_blocks || [];
-    if (blocks.length > 0) {
-        blocks.forEach((b, i) => {
-            const label = blocks.length > 1 ? `**Block ${i+1}** \`${escHtml(b.block_type)}\`\n\n` : "";
+    const renderList = opts.block !== undefined ? [blocks[opts.block]].filter(Boolean) : blocks;
+    if (renderList.length > 0) {
+        renderList.forEach((b, i) => {
+            const origIdx = opts.block !== undefined ? opts.block : i;
+            const label = (opts.block === undefined && renderList.length > 1) ? `**Block ${origIdx+1}** \`${escHtml(b.block_type)}\`\n\n` : "";
 
             if (b.has_thinking && b.thinking_full) {
                 md += label;
@@ -827,7 +1148,7 @@ function renderModalContent(event) {
     }
 
     // 无 blocks 但有 result_text
-    if (blocks.length === 0 && event.result_text) {
+    if (renderList.length === 0 && event.result_text) {
         md += event.result_text + "\n\n";
     }
 
@@ -849,7 +1170,41 @@ function renderModalContent(event) {
 
     container.innerHTML = html;
     addLineNumbersToCodeBlocks(container);
+    setupCodeWrapToggle(container);
     container.scrollTop = 0;
+}
+
+// 事件详情中代码块是否自动换行（在弹窗会话内保持状态）
+let codeWrapEnabled = false;
+
+// 当内容存在代码框时，在顶部插入"代码自动换行"切换器
+function setupCodeWrapToggle(container) {
+    const oldBar = container.querySelector(".code-wrap-toggle");
+    if (oldBar) oldBar.remove();
+
+    const codeEls = container.querySelectorAll("pre, .code-block-wrapper");
+    if (codeEls.length === 0) return; // 无代码框则不显示切换器
+
+    const bar = document.createElement("div");
+    bar.className = "code-wrap-toggle";
+    bar.innerHTML = `<label class="switch" title="切换代码块是否自动换行">
+        <input type="checkbox"${codeWrapEnabled ? " checked" : ""}>
+        <span class="slider"></span>
+    </label><span>代码自动换行</span>`;
+    container.insertBefore(bar, container.firstChild);
+
+    applyCodeWrap(container);
+    const cb = bar.querySelector("input");
+    cb.onchange = () => {
+        codeWrapEnabled = cb.checked;
+        applyCodeWrap(container);
+    };
+}
+
+// 根据 codeWrapEnabled 对容器内所有代码框应用/移除换行
+function applyCodeWrap(container) {
+    container.querySelectorAll("pre").forEach(p => p.classList.toggle("wrap", codeWrapEnabled));
+    container.querySelectorAll(".code-block-wrapper").forEach(w => w.classList.toggle("wrap", codeWrapEnabled));
 }
 
 function fmtFileBadge(path) {

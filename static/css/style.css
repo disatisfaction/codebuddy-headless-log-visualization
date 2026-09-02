@@ -199,45 +199,226 @@ table { width: 100%; border-collapse: collapse; font-size: 13px; }
 /* ---- 流程图视图 ---- */
 .flow-view {
     padding: 24px 16px; border: 1px solid var(--border); border-radius: 10px;
-    background: var(--bg-card); max-height: 800px; overflow-y: auto;
+    background: var(--bg-card); display: flex; flex-direction: column;
+    height: calc(100vh - 130px);
+}
+/* 工具筛选区（固定区域，不参与滚动） */
+.flow-filter {
+    flex-shrink: 0;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+    padding: 2px 0 14px;
+}
+/* 左右布局：左侧目录 + 右侧节点滚动区 */
+.flow-main {
+    flex: 1; min-height: 0; display: flex; gap: 14px;
+}
+/* 左侧目录（固定不随节点区滚动） */
+.flow-toc {
+    flex-shrink: 0; width: 220px; overflow-y: auto;
+    border: 1px solid var(--border); border-radius: 10px;
+    background: var(--bg); padding: 10px 8px;
+    align-self: stretch;
+}
+.flow-toc-title {
+    font-size: 12px; font-weight: 600; color: var(--text-secondary);
+}
+.flow-toc-header {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 0 8px 8px; border-bottom: 1px solid var(--border); margin-bottom: 6px;
+}
+.flow-toc-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.flow-toc-btn {
+    padding: 2px 6px; font-size: 10px; border-radius: 4px;
+    border: 1px solid var(--border); background: var(--bg-card); color: var(--text-secondary);
+    cursor: pointer; transition: all 0.12s;
+}
+.flow-toc-btn:hover { border-color: var(--accent); color: var(--text); }
+.flow-toc-item {
+    padding: 4px 8px; border-radius: 6px; cursor: pointer;
+    font-size: 12px; color: var(--text-secondary);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    transition: all 0.12s;
+}
+.flow-toc-item:hover { background: var(--bg-card-hover); color: var(--text); }
+.flow-toc-item.convo { font-weight: 600; color: var(--text); margin-top: 6px; display: flex; align-items: center; gap: 2px; }
+.flow-toc-item.convo:first-of-type { margin-top: 0; }
+.flow-toc-arrow {
+    display: inline-block; width: 14px; flex-shrink: 0; flex-grow: 0;
+    color: var(--text-secondary); font-size: 10px; cursor: pointer;
+    text-align: center; border-radius: 4px;
+}
+.flow-toc-arrow:hover { color: var(--accent-light); background: var(--bg-card-hover); }
+.flow-toc-label { flex: 1; min-width: 0; cursor: pointer; padding: 2px 0; }
+.flow-toc-label:hover { color: var(--accent-light); }
+.flow-toc-sub { flex-direction: column; }
+.flow-toc-item.node { padding-left: 20px; font-size: 11px; }
+.flow-toc-item.node:hover { color: var(--accent-light); }
+/* 对话虚线框：框住一个对话下的所有节点 */
+.flow-convo {
+    border: 1px dashed var(--accent); border-radius: 12px;
+    padding: 12px 16px 14px; margin-bottom: 18px;
+    width: fit-content; max-width: 100%;
+    background: rgba(108, 92, 231, 0.04);
+}
+.flow-convo:last-child { margin-bottom: 0; }
+.flow-convo-header {
+    font-size: 12px; font-weight: 600; color: var(--accent-light);
+    letter-spacing: 0.4px; margin-bottom: 10px;
+}
+.flow-convo-body { display: flex; flex-direction: column; align-items: center; }
+/* 节点滚动区：仅此区域滚动 */
+.flow-scroll {
+    flex: 1; min-height: 0; overflow-y: auto;
+}
+.flow-filter-title {
+    font-size: 12px; color: var(--text-secondary); margin-right: 2px;
+}
+.flow-filter-tag {
+    padding: 3px 10px; border-radius: 5px; border: 1px solid var(--border);
+    background: var(--bg-card); color: var(--text-secondary); font-size: 11px;
+    cursor: pointer; transition: all 0.15s; user-select: none;
+}
+.flow-filter-tag:hover { border-color: var(--accent); color: var(--text); }
+.flow-filter-tag.active {
+    background: var(--accent); border-color: var(--accent); color: #fff;
 }
 .flow-empty {
     text-align: center; color: var(--text-secondary); padding: 48px 0; font-size: 14px;
 }
 .flow-item {
     display: flex; flex-direction: column; align-items: center;
-    max-width: 860px; margin: 0 auto;
+}
+/* 节点行：节点框 + 右侧外部工具展开框，宽度自适应内容并整体居中 */
+.flow-row {
+    display: flex; align-items: stretch;
+    width: fit-content; max-width: 100%;
 }
 .flow-node {
-    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    flex: 1 0 860px; max-width: 860px;
+    background: var(--bg); border: 1px solid var(--border);
     border-left: 4px solid var(--accent); border-radius: 10px;
-    padding: 14px 18px; cursor: pointer; transition: all 0.15s;
+    padding: 14px 16px; cursor: pointer; transition: all 0.15s;
+    display: flex; align-items: stretch; gap: 14px;
 }
+/* 第一部分：编号 + 时间 */
+/* 左边缘可点击跳转竖条（不含任何文本） */
+.flow-node-jump {
+    flex-shrink: 0; align-self: stretch; width: 22px;
+    cursor: pointer; border-radius: 6px; transition: background 0.15s;
+    background: transparent;
+}
+.flow-node-jump:hover { background: rgba(108,92,231,0.25); }
+.flow-node-jump:active { background: var(--accent); }
+.flow-node-meta {
+    flex-shrink: 0; width: 68px;
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    padding-right: 12px; border-right: 1px dashed var(--border);
+}
+.flow-node-meta .flow-node-idx { margin-top: 2px; }
+/* 已跳转节点的标记 */
+.flow-node-active {
+    border-color: var(--accent-light);
+    box-shadow: 0 0 0 2px rgba(108,92,231,0.35);
+}
+
+/* 第二部分：纯文本 */
+.flow-node-body {
+    flex: 1; min-width: 0; align-self: center;
+}
+/* 第三部分：工具标签 */
+.flow-node-tags {
+    flex-shrink: 0; max-width: 220px;
+    display: flex; flex-direction: column; gap: 6px; justify-content: center;
+}
+.flow-node-tag {
+    display: inline-flex; align-items: center; max-width: 100%;
+    font-size: 11px; padding: 3px 10px; border-radius: 5px;
+    background: rgba(0,206,201,0.12); color: var(--cyan);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.flow-node-tag.muted {
+    background: transparent; color: var(--text-secondary);
+    border: 1px dashed var(--border);
+}
+/* 节点右侧工具圆圈 */
+.flow-node-bubble {
+    align-self: center; flex-shrink: 0;
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--bg-card); border: 1.5px solid var(--accent);
+    color: var(--accent-light); font-size: 13px; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    transition: all 0.15s; user-select: none;
+}
+.flow-node-bubble:hover { background: var(--accent); color: #fff; transform: scale(1.1); }
+.flow-node-bubble.open { background: var(--accent); color: #fff; }
+.flow-node-bubble.empty {
+    border-color: var(--border); color: var(--text-secondary);
+}
+.flow-node-bubble.empty:hover { transform: none; }
+/* 展开的工具框（节点右侧外部，参与行布局使组合整体居中，但不压缩节点） */
+.flow-tools {
+    flex-shrink: 0; width: 320px; max-width: 40%;
+    max-height: 360px; overflow-y: auto;
+    flex-direction: column; gap: 8px;
+    margin-left: 14px;
+    border: 1px dashed var(--border); border-radius: 10px;
+    padding: 12px; background: var(--bg-card);
+}
+.flow-tool-card {
+    border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card);
+    padding: 8px 12px; margin-bottom: 8px; font-size: 12px; line-height: 1.5;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+.flow-tool-card:hover {
+    border-color: var(--accent-light);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+.flow-tool-card:last-child { margin-bottom: 0; }
+.flow-tool-card.muted { color: var(--text-secondary); text-align: center; }
+.flow-tool-head { display: flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 4px; }
+.flow-tool-name { color: var(--cyan); }
+.flow-tool-status { font-size: 11px; padding: 1px 8px; border-radius: 10px; font-weight: 500; }
+.flow-tool-status.ok { background: rgba(0,184,148,0.15); color: var(--green); }
+.flow-tool-status.err { background: rgba(225,112,85,0.15); color: var(--red); }
+.flow-tool-summary {
+    font-family: Consolas, monospace; font-size: 11px; color: var(--text-secondary);
+    white-space: pre-wrap; word-break: break-word;
+}
+.flow-tool-input {
+    font-family: Consolas, monospace; font-size: 11px; color: var(--text-secondary);
+    white-space: pre-wrap; word-break: break-word; margin-top: 2px;
+}
+.flow-tool-result {
+    font-family: Consolas, monospace; font-size: 11px; color: var(--text);
+    white-space: pre-wrap; word-break: break-word; margin-top: 4px;
+}
+.flow-tool-result.err { color: var(--red); }
+.flow-tool-result.muted { color: var(--text-secondary); font-family: inherit; }
+.flow-tool-actions { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.flow-tool-actions .btn { padding: 2px 10px; font-size: 11px; }
 .flow-node:hover {
     border-color: var(--accent-light); box-shadow: 0 4px 20px rgba(108,92,231,0.18);
     transform: translateY(-1px);
 }
 .flow-node.flow-node-text { border-left-color: var(--pink); }
 .flow-node.flow-node-thinking { border-left-color: var(--orange); }
-.flow-node-header {
-    display: flex; align-items: center; gap: 10px;
-    font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;
-}
 .flow-node-idx {
     display: inline-flex; align-items: center; justify-content: center;
     min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px;
     background: rgba(108,92,231,0.2); color: var(--accent-light);
     font-weight: 600; font-size: 12px;
 }
-.flow-node-time { font-family: Consolas, monospace; }
-.flow-node-block {
-    padding: 2px 8px; border-radius: 4px; font-size: 11px;
-    background: rgba(162,155,254,0.15); color: var(--accent-light);
+.flow-node-time {
+    font-family: Consolas, monospace; font-size: 11px; line-height: 1.3;
+    text-align: center; word-break: break-all;
 }
 .flow-node-content {
     font-size: 13px; line-height: 1.7; color: var(--text);
-    white-space: pre-wrap; word-break: break-word;
-    max-height: 180px; overflow: hidden; position: relative;
+    white-space: pre-wrap; word-break: break-word; position: relative;
+}
+.flow-node-content.collapsed {
+    max-height: 180px; overflow: hidden;
 }
 .flow-node-content.collapsed::after {
     content: ""; position: absolute; bottom: 0; left: 0; right: 0;
@@ -309,9 +490,10 @@ tr:hover td { background: rgba(108,92,231,0.05); }
     border-radius: 14px; width: 90%; max-width: 850px; max-height: 82vh;
     display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.5);
 }
-.modal-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-bottom: 1px solid var(--border); }
+.modal-header { display: flex; align-items: center; gap: 14px; padding: 14px 20px; border-bottom: 1px solid var(--border); }
 .modal-header h3 { font-size: 15px; }
-.modal-tabs { display: flex; gap: 4px; }
+.modal-title { font-size: 14px; font-weight: 600; color: var(--accent-light); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60%; }
+.modal-tabs { display: flex; gap: 4px; margin-left: auto; }
 .modal-tab {
     padding: 6px 14px; border-radius: 6px; border: none;
     background: transparent; color: var(--text-secondary);
@@ -395,6 +577,32 @@ tr:hover td { background: rgba(108,92,231,0.05); }
     font-size: inherit;
     line-height: inherit;
 }
+
+/* 代码自动换行切换器（事件详情弹窗，有代码框时显示） */
+.code-wrap-toggle {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; color: var(--text-secondary);
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+    padding: 6px 12px; margin-bottom: 12px;
+    position: sticky; top: 0; z-index: 5;
+}
+.code-wrap-toggle .switch { position: relative; display: inline-block; width: 34px; height: 18px; flex-shrink: 0; }
+.code-wrap-toggle .switch input { opacity: 0; width: 0; height: 0; }
+.code-wrap-toggle .slider {
+    position: absolute; cursor: pointer; inset: 0;
+    background: var(--border); border-radius: 18px; transition: 0.2s;
+}
+.code-wrap-toggle .slider::before {
+    content: ""; position: absolute; width: 14px; height: 14px; left: 2px; top: 2px;
+    background: #fff; border-radius: 50%; transition: 0.2s;
+}
+.code-wrap-toggle .switch input:checked + .slider { background: var(--accent); }
+.code-wrap-toggle .switch input:checked + .slider::before { transform: translateX(16px); }
+
+/* 换行模式 */
+.markdown-body pre.wrap { white-space: pre-wrap; word-break: break-all; overflow-x: hidden; }
+.code-block-wrapper.wrap { overflow-x: hidden; }
+.code-block-wrapper.wrap td.code-line { white-space: pre-wrap; word-break: break-all; }
 .markdown-body blockquote {
     border-left: 3px solid var(--accent); padding: 6px 14px;
     margin: 0.6em 0; color: var(--text-secondary); background: rgba(108,92,231,0.06);
