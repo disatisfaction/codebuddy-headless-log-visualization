@@ -211,7 +211,14 @@ def normalize_event(raw: dict) -> dict:
                 texts = []
                 for ic in inner_content:
                     if isinstance(ic, dict) and ic.get("type") == "text":
-                        texts.append(ic.get("text", "")[:200])
+                        t = ic.get("text", "")
+                        # Grep 等结果的 text 整体是一个 JSON 数组字符串，摘要需解码后截取
+                        arr = _try_decode_line_array(t)
+                        if arr is not None:
+                            head = ", ".join(_short_line(x) for x in arr[:2])
+                            texts.append(f"[{len(arr)} 条] {head}"[:200])
+                        else:
+                            texts.append(t[:200])
                 bi["text_preview"] = " | ".join(texts)[:300]
                 # 拼接完整文本 + 清洗版本 + 格式化行号版本
                 full_texts = []
@@ -269,23 +276,56 @@ def normalize_event(raw: dict) -> dict:
     return base
 
 
+def _try_decode_line_array(text: str):
+    """CodeBuddy Grep 等工具结果的 tool_result text 实际是一个 JSON 数组字符串，
+    数组的每个元素代表一条匹配行，形如 "{文件}-{行号}-{行内容}"；
+    当行内找不到 "-" 分隔时会退化为 "{文件}:{行号}:{行内容}"；
+    行内容可为空，数组中也可能出现 "--" 之类的分组/空分隔项。
+
+    尝试把 text 解码为数组：成功且为 list 则返回，否则返回 None。
+    """
+    if not text:
+        return None
+    try:
+        decoded = json.loads(text)
+    except (ValueError, TypeError):
+        return None
+    return decoded if isinstance(decoded, list) else None
+
+
+def _short_line(item, limit=90):
+    s = str(item)
+    return s if len(s) <= limit else s[:limit] + "…"
+
+
 def _parse_grep_content(text: str) -> list:
-    """解析 Grep output_mode=content 结果，按文件分组并按连续行号聚合。
-    输入格式：每行 {文件名}-{行号}-{行内容}
+    """解析 Grep content 模式工具结果，按文件分组并按连续行号聚合。
+
+    真实输入：tool_result 的 text 是 JSON 数组字符串（见 _try_decode_line_array），
+    数组每个元素是 "{文件}-{行号}-{行内容}"；元素中找不到 "-" 分隔时，
+    使用 "{文件}:{行号}:{行内容}"（Windows 盘符 e: 后无数字，不会被误拆）。
+
     返回：[{file, start_line, end_line, lines: [str, ...]}, ...]
 
-    从行首用非贪婪匹配第一个 -数字- 作为行号分隔符，
-    确保行内容中的 "-数字-" 不被误识别为行号。
-    代价：文件名含 "-数字-" 模式（如 src-v2/utils.py）会被截断。
+    解析策略：
+    - 先整体 json.loads 解码数组；失败则按多行纯文本兜底逐行解析；
+    - 每条优先从行首非贪婪匹配 "-数字-"（行内容可为空，故用 (.*)），
+      未命中再尝试 ":数字:"；避免行内容自身的 "-数字-"/":数字:" 被误判；
+    - 跳过空项与 "--" 分隔项。
+    已知代价：文件名自身含 "-数字-" 模式（如 src-v2/utils.py）会被截断。
     """
     if not text:
         return []
+    arr = _try_decode_line_array(text)
+    raw_items = arr if arr is not None else text.split("\n")
     entries = []
-    for line in text.split("\n"):
-        line = line.strip()
-        if not line:
+    for item in raw_items:
+        line = item.strip()
+        if not line or line == "--":
             continue
-        m = re.match(r"^(.+?)-(\d+)-(.+)$", line)
+        m = re.match(r"^(.+?)-(\d+)-(.*)$", line)
+        if not m:
+            m = re.match(r"^(.+?):(\d+):(.*)$", line)
         if m:
             entries.append({"file": m.group(1), "line_num": int(m.group(2)), "content": m.group(3)})
     if not entries:
