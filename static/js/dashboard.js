@@ -3,6 +3,7 @@
    ================================================================ */
 
 let currentFile = "";
+let currentScanDir = ""; // 下拉框当前基于哪个已扫描目录构建（空 = 默认列表），刷新时据此原样重建
 let analysisData = null;
 let flowToolFilter = new Set(); // 流程图工具标签筛选（空 = 全部）
 let activeFlowNodeIdx = null; // 流程图最近一次点击跳转过的节点（用于显示标记）
@@ -36,8 +37,8 @@ function initCharts() {
 // ---- Events ----
 function bindEvents() {
     document.getElementById("refreshBtn").addEventListener("click", () => {
+        // loadFileList 内部会重建当前列表（含已扫描目录）并在保持选中项的前提下重载数据
         loadFileList();
-        if (currentFile) loadAll();
     });
     document.getElementById("fileSelector").addEventListener("change", e => {
         currentFile = e.target.value;
@@ -90,6 +91,12 @@ async function api(path) {
 }
 
 async function loadFileList() {
+    // 下拉框当前展示的是某个已扫描目录的列表时，刷新必须重建同一份列表，
+    // 否则会被默认目录列表覆盖，导致该文件夹下的日志文件"消失"
+    if (currentScanDir) {
+        await loadScanDir(currentScanDir);
+        return;
+    }
     const data = await api("/api/files");
     const sel = document.getElementById("fileSelector");
     sel.innerHTML = '<option value="">-- 选择日志文件 --</option>';
@@ -111,26 +118,34 @@ async function loadFileList() {
             loadAll();
         }
     }
+    // 刷新场景：当前文件仍在列表中则重新拉取分析结果（首次加载时 currentFile 为空，不会触发）
+    if (currentFile) loadAll();
 }
 
 async function scanDir() {
     const input = document.getElementById("pathInput");
     const dir = input.value.trim();
     if (!dir) { input.placeholder = "请先输入目录路径"; input.focus(); return; }
+    await loadScanDir(dir, { selectFirst: true });
+}
 
+// 构建"已扫描目录 + 默认日志目录"两段式下拉列表；刷新时复用本函数原样重建，
+// 避免下拉框退化为只有默认目录而丢失该文件夹下的日志文件
+async function loadScanDir(dir, opts = {}) {
     const sel = document.getElementById("fileSelector");
     sel.innerHTML = '<option value="">扫描中...</option>';
     const data = await api(`/api/scan?dir=${encodeURIComponent(dir)}`);
     if (!data || data.error) {
         sel.innerHTML = `<option value="">${(data && data.error) || "扫描失败"}</option>`;
-        return;
+        return false;
     }
     if (!data.files || data.files.length === 0) {
         sel.innerHTML = '<option value="">该目录无 .log / .jsonl 文件</option>';
-        return;
+        return false;
     }
 
     sel.innerHTML = '<option value="">-- 选择日志文件 --</option>';
+    const listed = []; // 下拉框中所有可选文件，用于判断当前选中项是否仍然存在
     const optgroup = document.createElement("optgroup");
     optgroup.label = data.dir;
     data.files.forEach(f => {
@@ -138,6 +153,7 @@ async function scanDir() {
         o.value = f.path;
         o.textContent = `${f.name} (${fsize(f.size)})`;
         optgroup.appendChild(o);
+        listed.push(f);
     });
     sel.appendChild(optgroup);
 
@@ -151,13 +167,21 @@ async function scanDir() {
             o.value = f.path;
             o.textContent = `${f.name} (${fsize(f.size)})`;
             g2.appendChild(o);
+            listed.push(f);
         });
         sel.appendChild(g2);
     }
 
-    currentFile = data.files[0].path;
-    sel.value = currentFile;
+    currentScanDir = data.dir;
+    if (opts.selectFirst || !currentFile || !listed.some(f => f.path === currentFile)) {
+        // 首次扫描，或当前所选文件已不在列表中：选中该目录下最新的文件
+        currentFile = data.files[0].path;
+        sel.value = currentFile;
+    } else {
+        sel.value = currentFile; // 保持原选中项
+    }
     loadAll();
+    return true;
 }
 
 // --- 目录浏览器 ---
@@ -530,21 +554,34 @@ function renderFlowView(timeline) {
         });
     });
     // 收集所有 assistant 事件的文本/思考块及工具调用
-    // 每个文本节点显示"它之后紧接着调用"的工具（文本引导工具调用）：
-    // 遇到文本节点即开始收集，遇到下一个文本节点则停止，中途的工具归属当前文本节点
+    // 每个节点显示"它之后紧接着调用"的工具（文本引导工具调用），且工具不得跨对话归属：
+    //   - 遇到下一个文本/思考块 → 当前节点停止收集
+    //   - 遇到 system/init、system/custom_title（新对话开始）或 result（对话结束）→ 也停止收集
+    //   - 若某对话在首个文本节点之前就已在调用工具，则为这段工具单独建一个无文本节点，
+    //     避免它们被算进上一个对话最后一个节点的工具里
     const nodes = [];
-    let openNode = null; // 正在收集工具的文本节点
+    let openNode = null; // 正在收集工具的节点（文本节点，或无文本的"纯工具"节点）
     timeline.forEach((e, i) => {
+        // 对话边界：工具收集不得跨越对话
+        if (e.type === "result"
+            || (e.type === "system" && (e.subtype === "init" || e.subtype === "custom_title"))) {
+            openNode = null;
+            return;
+        }
         if (e.type !== "assistant") return;
         (e.content_blocks || []).forEach((b, bi) => {
             const text = b.has_text && b.text_full ? b.text_full.trim() : "";
             const think = b.has_thinking && b.thinking_full ? b.thinking_full.trim() : "";
             if (text || think) {
                 // 新文本节点出现，上一个节点停止收集
-                openNode = { idx: i, ts: e.timestamp || "", text, think, tools: [] };
+                openNode = { idx: i, ts: e.timestamp || "", text, think, tools: [], toolsOnly: false };
                 nodes.push(openNode);
             } else if (b.has_tool && b.tool_name) {
-                if (!openNode) return; // 没有打开的文本节点，工具不归属任何节点
+                if (!openNode) {
+                    // 该对话首个文本之前的工具调用：单独成节点（无文本内容）
+                    openNode = { idx: i, ts: e.timestamp || "", text: "", think: "", tools: [], toolsOnly: true };
+                    nodes.push(openNode);
+                }
                 const fp = b.tool_file_path || "";
                 openNode.tools.push({
                     name: b.defer_tool_name || b.tool_name,
@@ -563,7 +600,7 @@ function renderFlowView(timeline) {
     });
 
     if (!nodes.length) {
-        flow.innerHTML = '<div class="flow-empty">没有 assistant 文本节点</div>';
+        flow.innerHTML = '<div class="flow-empty">没有可展示的节点（assistant 文本 / 思考 / 工具调用）</div>';
         return;
     }
 
@@ -598,12 +635,17 @@ function renderFlowView(timeline) {
     const convoRanges = [];
     let cur = null;
     let pendingTitle = "";
+    let pendingTitleIdx = -1;
     timeline.forEach((e, i) => {
         if (e.type === "system" && e.subtype === "custom_title") {
             pendingTitle = e.custom_title || "";
+            pendingTitleIdx = i;
         } else if (e.type === "system" && e.subtype === "init") {
-            cur = { start: i, end: i, title: pendingTitle || "" };
+            // custom_title 属于它紧随其后的对话，一并纳入该对话的范围，
+            // 保证 custom_title 与 init 之间的节点不会被误判为"未分组"
+            cur = { start: pendingTitleIdx >= 0 ? pendingTitleIdx : i, end: i, title: pendingTitle || "" };
             pendingTitle = ""; // 标题只作用于紧随其后的对话
+            pendingTitleIdx = -1;
             convoRanges.push(cur);
         } else if (cur) {
             cur.end = i;
@@ -661,6 +703,10 @@ function renderFlowView(timeline) {
             ? `<div class="flow-node-tags">${[...tagCounts.entries()].map(([name, cnt]) =>
                 `<span class="flow-node-tag" title="${escHtml(name)}">⚙ ${escHtml(name)}${cnt > 1 ? ` *${cnt}` : ""}</span>`).join("")}</div>`
             : '<div class="flow-node-tags"><span class="flow-node-tag muted">无工具</span></div>';
+        // 无文本的纯工具节点（对话首段文本之前的工具调用）只用文字说明，样式与思考节点一致
+        const contentHtml = n.text || n.think
+            ? escHtml(n.text || n.think)
+            : '<span class="flow-node-empty">（本轮对话在 Assistant 输出文本前执行的工具调用）</span>';
         return `
         <div class="flow-row" id="${rowId}">
             <div class="flow-node flow-node-${n.text ? "text" : "thinking"}${n.idx === activeFlowNodeIdx ? " flow-node-active" : ""}" data-idx="${n.idx}">
@@ -670,7 +716,7 @@ function renderFlowView(timeline) {
                     ${n.ts ? `<span class="flow-node-time">${escHtml(n.ts)}</span>` : ""}
                 </div>
                 <div class="flow-node-body">
-                    <div class="flow-node-content">${escHtml((n.text || n.think))}</div>
+                    <div class="flow-node-content">${contentHtml}</div>
                     <span class="flow-node-expand" style="display:none" onclick="event.stopPropagation();toggleFlowExpand(this)">展开全文</span>
                 </div>
                 ${tagsHtml}
@@ -695,7 +741,7 @@ function renderFlowView(timeline) {
             + `</div>`;
         toc += `<div class="flow-toc-sub" data-group="${g.id}" style="display:none">`;
         g.nodes.forEach((n, ni) => {
-            const brief = (n.text || n.think || "").replace(/\s+/g, " ").trim().slice(0, 20);
+            const brief = (n.text || n.think || `工具调用 ×${n.tools.length}`).replace(/\s+/g, " ").trim().slice(0, 20);
             toc += `<div class="flow-toc-item node" title="滚动到 #${n.idx + 1}" onclick="flowTocScroll('${g.id}-node-${ni}')">#${n.idx + 1} ${escHtml(brief)}</div>`;
         });
         toc += '</div>';

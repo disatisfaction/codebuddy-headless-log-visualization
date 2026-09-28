@@ -406,6 +406,9 @@ table { width: 100%; border-collapse: collapse; font-size: 13px; }
 }
 .flow-node.flow-node-text { border-left-color: var(--pink); }
 .flow-node.flow-node-thinking { border-left-color: var(--orange); }
+/* 无文本的"纯工具"节点：对话首个 Assistant 文本之前执行的工具调用，
+   不额外区分样式，仅用节点正文的文字说明 */
+.flow-node-empty { color: var(--text-secondary); font-size: 12px; }
 .flow-node-idx {
     display: inline-flex; align-items: center; justify-content: center;
     min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px;
