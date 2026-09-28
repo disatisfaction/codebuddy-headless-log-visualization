@@ -266,9 +266,9 @@ table { width: 100%; border-collapse: collapse; font-size: 13px; }
     letter-spacing: 0.4px; margin-bottom: 10px;
 }
 .flow-convo-body { display: flex; flex-direction: column; align-items: center; }
-/* 节点滚动区：仅此区域滚动 */
+/* 节点滚动区：仅此区域滚动（行宽为固定基准，窄屏时允许横向滚动） */
 .flow-scroll {
-    flex: 1; min-height: 0; overflow-y: auto;
+    flex: 1; min-height: 0; overflow: auto;
 }
 .flow-filter-title {
     font-size: 12px; color: var(--text-secondary); margin-right: 2px;
@@ -288,13 +288,16 @@ table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .flow-item {
     display: flex; flex-direction: column; align-items: center;
 }
-/* 节点行：节点框 + 右侧外部工具展开框，宽度自适应内容并整体居中 */
+/* 节点行：节点框 + 右侧外部工具展开框，宽度自适应内容并整体居中
+   注意：860px 必须写成显式 width/min-width，不能只依赖 flex-basis：
+   Chrome 126 以下的老版本在推导 flex 容器固有尺寸（max-content / fit-content）
+   时不采用 flex-basis，行宽会随节点文本长短抖动；Chrome 新版已修正该算法 */
 .flow-row {
     display: flex; align-items: stretch;
-    width: fit-content; max-width: 100%;
+    width: fit-content; min-width: 860px;
 }
 .flow-node {
-    flex: 1 0 860px; max-width: 860px;
+    flex: 0 0 860px; width: 860px; max-width: 860px;
     background: var(--bg); border: 1px solid var(--border);
     border-left: 4px solid var(--accent); border-radius: 10px;
     padding: 14px 16px; cursor: pointer; transition: all 0.15s;
@@ -358,7 +361,7 @@ table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .flow-node-bubble.empty:hover { transform: none; }
 /* 展开的工具框（节点右侧外部，参与行布局使组合整体居中，但不压缩节点） */
 .flow-tools {
-    flex-shrink: 0; width: 320px; max-width: 40%;
+    flex: 0 0 320px; width: 320px; max-width: 320px;
     max-height: 360px; overflow-y: auto;
     flex-direction: column; gap: 8px;
     margin-left: 14px;
