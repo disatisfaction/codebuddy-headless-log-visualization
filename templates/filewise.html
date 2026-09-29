@@ -1,0 +1,13 @@
+{% extends "index.html" %}
+
+{% block title %}CodeBuddy Headless 日志可视化 · 单文件{% endblock %}
+
+{% block header %}
+    <header class="header">
+        <h1>📊 CodeBuddy Headless 日志可视化 · 单文件</h1>
+        <div class="header-right">
+            <span id="curFilePath" class="filewise-path" title="当前文件（由 URL 中的 #file= 指定）">未指定文件</span>
+            <button id="refreshBtn" class="btn btn-primary" title="重新加载该日志文件">🔄 刷新</button>
+        </div>
+    </header>
+{% endblock %}

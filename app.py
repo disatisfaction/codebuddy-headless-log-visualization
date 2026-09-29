@@ -49,6 +49,8 @@ def parse_jsonl(filepath: str) -> list[dict]:
         try:
             data = json.loads(line)
             data["_line"] = line_no
+            # 保留日志文件中的原始行文本，供前端"原始 JSON"选项卡展示
+            data["_raw_line"] = line
             events.append(data)
         except json.JSONDecodeError:
             events.append({
@@ -76,6 +78,8 @@ def normalize_event(raw: dict) -> dict:
         "session_id": raw.get("session_id", ""),
         "uuid": raw.get("uuid", ""),
         "parent_tool_use_id": raw.get("parent_tool_use_id"),
+        # 日志文件中的原始 JSON 行文本（供前端"原始 JSON"选项卡展示）
+        "raw_json": raw.get("_raw_line", ""),
     }
 
     if etype == "system":
@@ -88,13 +92,30 @@ def normalize_event(raw: dict) -> dict:
             base["output_style"] = raw.get("output_style", "")
         elif subtype == "custom_title":
             base["custom_title"] = raw.get("custom_title", "")
-        base["summary"] = base["custom_title"] if subtype == "custom_title" else f"[system/{subtype}]"
+        elif subtype == "status":
+            # system/status 事件：摘要带上状态值（如 compacting）；status 为 null 时保持原样
+            base["status"] = raw.get("status", "")
+        if subtype == "custom_title":
+            base["summary"] = base["custom_title"]
+        elif subtype == "status" and raw.get("status"):
+            base["summary"] = f"[system/status] {raw.get('status')}"
+        else:
+            base["summary"] = f"[system/{subtype}]"
 
     elif etype == "file-history-snapshot":
-        backups = raw.get("snapshot", {}).get("trackedFileBackups", {})
-        files = list(backups.keys())
-        base["files"] = files
-        base["summary"] = f"[file-snapshot] {len(files)} files tracked"
+        snapshot = raw.get("snapshot", {}) or {}
+        backups = snapshot.get("trackedFileBackups", {}) or {}
+        # 每项：文件名 + 版本 + 备份时间（毫秒），按备份时间升序，供详情弹窗逐项展示
+        items = [
+            {"file": k, "version": v.get("version"), "backup_time": v.get("backupTime")}
+            for k, v in backups.items()
+        ]
+        items.sort(key=lambda x: x.get("backup_time") or 0)
+        base["files"] = [it["file"] for it in items]
+        base["file_backups"] = items
+        base["snapshot_message_id"] = snapshot.get("messageId", "")
+        base["is_snapshot_update"] = raw.get("isSnapshotUpdate", False)
+        base["summary"] = f"[file-snapshot] {len(items)} files tracked"
 
     elif etype == "ai-title":
         base["title"] = raw.get("aiTitle", "")
@@ -254,6 +275,8 @@ def normalize_event(raw: dict) -> dict:
 
     elif etype == "result":
         base["is_error"] = raw.get("is_error", False)
+        # result 事件的 errors 文本列表（如 error_during_execution），供详情弹窗展示
+        base["errors"] = raw.get("errors") or []
         base["duration_ms"] = raw.get("duration_ms", 0)
         base["duration_api_ms"] = raw.get("duration_api_ms", 0)
         base["num_turns"] = raw.get("num_turns", 0)
@@ -467,6 +490,14 @@ def analyze_logs(filepath: str) -> dict:
             "content_blocks": e.get("content_blocks", []),
             "result_text": e.get("result_text", ""),
             "custom_title": e.get("custom_title", ""),
+            # result 事件（如 error_during_execution）的错误文本列表，供详情弹窗展示
+            "errors": e.get("errors", []),
+            # file-history-snapshot：被跟踪文件的备份明细，供详情弹窗逐项展示
+            "file_backups": e.get("file_backups", []),
+            "snapshot_message_id": e.get("snapshot_message_id", ""),
+            "is_snapshot_update": e.get("is_snapshot_update", False),
+            # 日志文件中的原始 JSON 行文本，供详情弹窗"原始 JSON"选项卡展示
+            "raw_json": e.get("raw_json", ""),
         }
         timeline.append(item)
 
@@ -498,7 +529,6 @@ def analyze_logs(filepath: str) -> dict:
             "end": max(timestamps) if timestamps else None,
         },
         "timeline": timeline,
-        "events": events,
     }
     return result
 
@@ -510,6 +540,12 @@ def analyze_logs(filepath: str) -> dict:
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/filewise")
+def filewise():
+    """单文件查看页：不提供文件夹选择，文件由 URL hash 指定（#file=<路径>）"""
+    return render_template("filewise.html")
 
 
 @app.route("/api/files")

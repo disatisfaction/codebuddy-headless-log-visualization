@@ -3,12 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CodeBuddy Headless 日志可视化</title>
+    <title>{% block title %}CodeBuddy Headless 日志可视化{% endblock %}</title>
     <script src="/static/js/echarts.min.js"></script>
     <script src="/static/js/marked.min.js"></script>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
+    {% block header %}
     <header class="header">
         <h1>📊 CodeBuddy Headless 日志可视化</h1>
         <div class="header-right">
@@ -31,6 +32,7 @@
             <button id="refreshBtn" class="btn btn-primary">🔄 刷新</button>
         </div>
     </header>
+    {% endblock %}
 
     <!-- Session 信息 -->
     <section id="sessionInfo" class="session-bar" style="display:none;">
@@ -44,11 +46,10 @@
     <section class="overview-cards">
             <div class="card"><div class="card-value" id="totalEvents">-</div><div class="card-label">事件数 <span id="parseBadge" class="parse-badge" style="display:none"></span></div></div>
             <div class="card"><div class="card-value" id="totalTurns">-</div><div class="card-label">对话轮次</div></div>
-            <div class="card"><div class="card-value" id="internalTurns">-</div><div class="card-label">内部轮次</div></div>
             <div class="card"><div class="card-value" id="totalTokens">-</div><div class="card-label">总 Tokens</div></div>
         <div class="card"><div class="card-value" id="inputTokens">-</div><div class="card-label">输入 Tokens</div></div>
         <div class="card"><div class="card-value" id="outputTokens">-</div><div class="card-label">输出 Tokens</div></div>
-        <div class="card"><div class="card-value" id="cacheTokens">-</div><div class="card-label">Cache 命中</div></div>
+        <div class="card"><div class="card-value" id="cacheTokens">-</div><div class="card-label" title="仅统计 cache_read_input_tokens（Cache 写入不计为命中）">Cache 命中</div></div>
         <div class="card"><div class="card-value" id="totalTools">-</div><div class="card-label">工具调用</div></div>
         <div class="card"><div class="card-value" id="duration">-</div><div class="card-label">耗时</div></div>
     </section>
@@ -114,7 +115,7 @@
                 <thead>
                     <tr>
                         <th style="width:50px">#</th>
-                        <th style="width:100px">时间</th>
+                        <th style="width:150px">时间</th>
                         <th style="width:90px">类型</th>
                         <th style="width:80px">工具</th>
                         <th style="width:50px">状态</th>
@@ -137,11 +138,13 @@
                 <div class="modal-tabs">
                     <button class="modal-tab active" data-tab="content">📝 内容</button>
                     <button class="modal-tab" data-tab="json">{ } JSON</button>
+                    <button class="modal-tab" data-tab="rawjson">📄 原始 JSON</button>
                 </div>
                 <span class="modal-close" onclick="closeModal()">&times;</span>
             </div>
             <div id="modalTabContent" class="modal-tab-body markdown-body"></div>
             <pre id="modalTabJson" class="modal-body" style="display:none;"></pre>
+            <pre id="modalTabRaw" class="modal-body" style="display:none;"></pre>
         </div>
     </div>
 

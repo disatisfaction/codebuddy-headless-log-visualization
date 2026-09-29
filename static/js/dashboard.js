@@ -10,6 +10,9 @@ let activeFlowNodeIdx = null; // 流程图最近一次点击跳转过的节点�
 let flowScrollTop = 0; // 流程图内部滚动位置记忆
 let chartTypePie, chartToolBar, chartTokenBar, chartBlockPie, chartToolResult;
 
+// /filewise = 单文件查看页：无文件夹选择，文件由 URL hash 指定（#file=<路径>）
+const IS_FILEWISE = location.pathname.replace(/\/+$/, "").endsWith("/filewise");
+
 // marked config (offline)
 if (typeof marked !== "undefined") {
     marked.setOptions({ breaks: true, gfm: true });
@@ -17,8 +20,9 @@ if (typeof marked !== "undefined") {
 
 document.addEventListener("DOMContentLoaded", () => {
     initCharts();
-    loadFileList();
     bindEvents();
+    if (IS_FILEWISE) initFilewise();
+    else loadFileList();
 });
 window.addEventListener("resize", () => {
     [chartTypePie, chartToolBar, chartTokenBar, chartBlockPie, chartToolResult]
@@ -35,26 +39,33 @@ function initCharts() {
 }
 
 // ---- Events ----
+// 某些元素在单文件页不存在（如文件选择器、扫描按钮），统一走判空绑定避免报错
+function bindEl(id, evt, handler) {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener(evt, handler);
+}
+
 function bindEvents() {
-    document.getElementById("refreshBtn").addEventListener("click", () => {
-        // loadFileList 内部会重建当前列表（含已扫描目录）并在保持选中项的前提下重载数据
-        loadFileList();
+    bindEl("refreshBtn", "click", () => {
+        // 单文件页直接重载当前文件；列表页则由 loadFileList 重建列表（含已扫描目录）后再重载
+        if (IS_FILEWISE) loadAll();
+        else loadFileList();
     });
-    document.getElementById("fileSelector").addEventListener("change", e => {
+    bindEl("fileSelector", "change", e => {
         currentFile = e.target.value;
         if (currentFile) loadAll();
     });
-    document.getElementById("searchInput").addEventListener("input", debounce(filterTimeline, 250));
-    document.getElementById("filterType").addEventListener("change", filterTimeline);
-    document.getElementById("fromIdx").addEventListener("input", debounce(filterTimeline, 200));
-    document.getElementById("toIdx").addEventListener("input", debounce(filterTimeline, 200));
-    document.getElementById("resetFilterBtn").addEventListener("click", resetFilters);
-    document.getElementById("viewToggle").addEventListener("click", e => {
+    bindEl("searchInput", "input", debounce(filterTimeline, 250));
+    bindEl("filterType", "change", filterTimeline);
+    bindEl("fromIdx", "input", debounce(filterTimeline, 200));
+    bindEl("toIdx", "input", debounce(filterTimeline, 200));
+    bindEl("resetFilterBtn", "click", resetFilters);
+    bindEl("viewToggle", "click", e => {
         const btn = e.target.closest(".view-btn");
         if (btn) switchTimelineView(btn.dataset.view);
     });
     // 流程图工具标签筛选
-    document.getElementById("flowView").addEventListener("click", e => {
+    bindEl("flowView", "click", e => {
         const btn = e.target.closest(".flow-filter-tag");
         if (!btn) return;
         const tool = btn.dataset.tool;
@@ -67,18 +78,54 @@ function bindEvents() {
         }
         renderFlowView(currentTimelineData);
     });
-    document.getElementById("detailModal").addEventListener("click", e => {
+    bindEl("detailModal", "click", e => {
         if (e.target.id === "detailModal") closeModal();
         if (e.target.classList.contains("modal-tab")) {
             switchModalTab(e.target.dataset.tab);
         }
     });
-    document.getElementById("folderBtn").addEventListener("click", toggleDirBrowser);
-    document.getElementById("scanBtn").addEventListener("click", scanDir);
-    document.getElementById("pathInput").addEventListener("keydown", e => {
+    bindEl("folderBtn", "click", toggleDirBrowser);
+    bindEl("scanBtn", "click", scanDir);
+    bindEl("pathInput", "keydown", e => {
         if (e.key === "Enter") scanDir();
     });
     document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
+}
+
+// ---- /filewise：单文件页，文件由 URL hash 指定 ----
+// 解析形如 #file=<路径> 的 hash 参数
+function parseFileFromHash() {
+    const raw = (location.hash || "").replace(/^#/, "");
+    const m = /(?:^|&)file=([^&]*)/.exec(raw);
+    if (!m) return "";
+    let val = m[1];
+    try { val = decodeURIComponent(val); } catch (e) { /* 非法转义时保留原值 */ }
+    return val.trim();
+}
+
+// 更新 header 上显示的当前文件路径
+function updateFilePathLabel() {
+    const el = document.getElementById("curFilePath");
+    if (!el) return;
+    if (currentFile) {
+        el.textContent = currentFile;
+        el.classList.remove("filewise-path-empty");
+    } else {
+        el.textContent = "未指定文件：请在地址栏追加 #file=<日志文件路径>";
+        el.classList.add("filewise-path-empty");
+    }
+}
+
+function loadFromFileHash() {
+    currentFile = parseFileFromHash();
+    updateFilePathLabel();
+    if (currentFile) loadAll();
+}
+
+function initFilewise() {
+    loadFromFileHash();
+    // 支持直接修改地址栏 hash 切换文件，无需整页刷新
+    window.addEventListener("hashchange", loadFromFileHash);
 }
 
 // ---- API ----
@@ -282,11 +329,15 @@ function renderDirList(data) {
     });
 }
 
-document.getElementById("dirSelectBtn").onclick = function() {
-    document.getElementById("pathInput").value = curBrowsePath;
-    document.getElementById("dirBrowser").style.display = "none";
-    scanDir();
-};
+// 目录浏览器的"选择"按钮（单文件页无此控件，需判空）
+const dirSelectBtn = document.getElementById("dirSelectBtn");
+if (dirSelectBtn) {
+    dirSelectBtn.onclick = function() {
+        document.getElementById("pathInput").value = curBrowsePath;
+        document.getElementById("dirBrowser").style.display = "none";
+        scanDir();
+    };
+}
 
 // 点击面板外关闭（含按钮子节点判断）
 document.addEventListener("click", function(e) {
@@ -321,11 +372,11 @@ function updateCards(d) {
         badge.style.display = "none";
     }
     setVal("totalTurns",    d.session_count || "0");
-    setVal("internalTurns", d.internal_turns || "0");
     setVal("totalTokens", fnum(d.total_tokens || 0));
     setVal("inputTokens", fnum(d.total_usage?.input_tokens || 0));
     setVal("outputTokens",fnum(d.total_usage?.output_tokens || 0));
-    setVal("cacheTokens",fnum((d.total_usage?.cache_read || 0) + (d.total_usage?.cache_creation || 0)));
+    // Cache 命中 = 从缓存读取的 token；Cache 写入是首次写入，不算命中，不能相加
+    setVal("cacheTokens",fnum(d.total_usage?.cache_read || 0));
     const tc = Object.values(d.tool_usage || {}).reduce((a,b)=>a+b,0);
     setVal("totalTools", tc || "-");
     setVal("duration",   d.duration_sec ? d.duration_sec + "s" : "-");
@@ -439,10 +490,12 @@ function updateTokenBar(data) {
             axisLabel: { fontSize: 10, color: "#8b90a0", formatter: v => fnum(v) },
         },
         series: [
-            { name: "输入", type: "bar", stack: "tokens", data: points.map(p=>p.input), itemStyle: { color: "#74b9ff" }, barWidth: 30 },
-            { name: "输出", type: "bar", stack: "tokens", data: points.map(p=>p.output), itemStyle: { color: "#00b894" } },
-            { name: "Cache 读", type: "bar", stack: "tokens", data: points.map(p=>p.cache_read), itemStyle: { color: "#a29bfe" } },
-            { name: "Cache 写", type: "bar", stack: "tokens", data: points.map(p=>p.cache_creation), itemStyle: { color: "#fdcb6e" } },
+            // 柱宽随事件数自适应：事件多时自动变窄，事件少时最宽 28px
+            // （原先写死 barWidth:30 会让柱子在事件多时互相重叠）
+            { name: "输入", type: "bar", stack: "tokens", data: points.map(p=>p.input), itemStyle: { color: "#74b9ff" }, barMaxWidth: 28, barCategoryGap: "20%" },
+            { name: "输出", type: "bar", stack: "tokens", data: points.map(p=>p.output), itemStyle: { color: "#00b894" }, barMaxWidth: 28, barCategoryGap: "20%" },
+            { name: "Cache 读", type: "bar", stack: "tokens", data: points.map(p=>p.cache_read), itemStyle: { color: "#a29bfe" }, barMaxWidth: 28, barCategoryGap: "20%" },
+            { name: "Cache 写", type: "bar", stack: "tokens", data: points.map(p=>p.cache_creation), itemStyle: { color: "#fdcb6e" }, barMaxWidth: 28, barCategoryGap: "20%" },
         ],
     }, true);
 }
@@ -713,7 +766,7 @@ function renderFlowView(timeline) {
                 <div class="flow-node-jump" title="点击跳转到表格视图并筛选该节点" onclick="flowNodeClick(${n.idx})"></div>
                 <div class="flow-node-meta">
                     <span class="flow-node-idx">#${n.idx + 1}</span>
-                    ${n.ts ? `<span class="flow-node-time">${escHtml(n.ts)}</span>` : ""}
+                    ${n.ts ? `<span class="flow-node-time" title="${escHtml(n.ts)}"><span class="flow-node-date">${escHtml(fmtDate(n.ts))}</span>${escHtml(fmtTime(n.ts))}</span>` : ""}
                 </div>
                 <div class="flow-node-body">
                     <div class="flow-node-content">${contentHtml}</div>
@@ -862,7 +915,7 @@ function renderTimeline(timeline) {
         return;
     }
     tbody.innerHTML = timeline.map((e, i) => {
-        const ts = e.timestamp ? e.timestamp.substring(11, 23) : "-";
+        const ts = fmtDateTime(e.timestamp);   // 转本地时区，并带日期
         const typeBadge = badgeClass(e.type);
         const toolName = getToolNames(e);  // 返回安全 HTML（含文件路径提示）
         const statusBadge = e.tool_status === "error" ? '<span class="badge badge-error">失败</span>'
@@ -883,7 +936,7 @@ function renderTimeline(timeline) {
 
         return `<tr data-type="${escHtml(e.type)}" data-summary="${escHtml(e.summary)}" data-idx="${i}">
             <td>${i+1}</td>
-            <td>${ts}</td>
+            <td class="time-cell">${ts}</td>
             <td><span class="badge ${typeBadge}">${escHtml(e.type)}</span></td>
             <td><span class="badge badge-tool_name">${toolName}</span></td>
             <td>${statusBadge}</td>
@@ -1035,12 +1088,18 @@ function showDetail(idx, opts) {
         };
     }
     document.getElementById("modalTabJson").textContent = JSON.stringify(display, null, 2);
+    // 原始 JSON：日志文件中该行的原始文本（缺失时回退为标准事件 JSON）
+    const rawTab = document.getElementById("modalTabRaw");
+    if (rawTab) {
+        rawTab.textContent = event.raw_json || JSON.stringify(event, null, 2);
+    }
 
     // 切换 tab
     document.querySelectorAll(".modal-tab").forEach(btn => btn.classList.remove("active"));
     document.querySelector('.modal-tab[data-tab="content"]').classList.add("active");
     document.getElementById("modalTabContent").style.display = "block";
     document.getElementById("modalTabJson").style.display = "none";
+    if (rawTab) rawTab.style.display = "none";
 
     document.getElementById("detailModal").classList.add("active");
 }
@@ -1080,7 +1139,30 @@ function renderModalContent(event, opts) {
             md += `\n`;
         }
         if (event.stop_reason) md += `- **停止原因**: ${escHtml(event.stop_reason)}\n`;
+        // result / error_during_execution：拼接展示 errors 文本列表
+        if (event.errors && event.errors.length) {
+            md += `- **错误数**: ${event.errors.length}\n`;
+            md += `\n**❌ 执行错误**\n\n`;
+            event.errors.forEach((err, ei) => {
+                md += `**❌ 错误 ${ei + 1}**：${escHtml(String(err))}\n\n`;
+            });
+        }
         md += `\n---\n\n`;
+    }
+
+    // file-history-snapshot：逐项展示 snapshot.trackedFileBackups
+    if (!focusedBlock && event.type === "file-history-snapshot") {
+        const backups = event.file_backups || [];
+        if (backups.length) {
+            md += `### 📁 文件备份快照（${backups.length} 个文件）\n\n`;
+            if (event.snapshot_message_id) md += `- **messageId**: \`${escHtml(event.snapshot_message_id)}\`\n`;
+            md += `- **快照类型**: ${event.is_snapshot_update ? "增量更新（isSnapshotUpdate）" : "全量快照"}\n\n`;
+            md += `| # | 文件 | 版本 | 备份时间 |\n|:--:|---|---|---|\n`;
+            backups.forEach((b, i) => {
+                md += `| ${i + 1} | \`${escHtml(b.file)}\` | v${(b.version !== null && b.version !== undefined) ? b.version : "-"} | ${fmtMsTime(b.backup_time)} |\n`;
+            });
+            md += `\n`;
+        }
     }
 
     // Content blocks（聚焦单块时仅渲染该块）
@@ -1322,6 +1404,8 @@ function switchModalTab(tabName) {
     document.querySelector(`.modal-tab[data-tab="${tabName}"]`).classList.add("active");
     document.getElementById("modalTabContent").style.display = tabName === "content" ? "block" : "none";
     document.getElementById("modalTabJson").style.display = tabName === "json" ? "block" : "none";
+    const rawTab = document.getElementById("modalTabRaw");
+    if (rawTab) rawTab.style.display = tabName === "rawjson" ? "block" : "none";
 }
 
 function closeModal() {
@@ -1359,5 +1443,36 @@ function addLineNumbersToCodeBlocks(container) {
 
 function fsize(b) { return b < 1024 ? b+"B" : b < 1048576 ? (b/1024).toFixed(1)+"KB" : (b/1048576).toFixed(1)+"MB"; }
 function fnum(n) { return n >= 1e6 ? (n/1e6).toFixed(1)+"M" : n >= 1000 ? (n/1000).toFixed(1)+"K" : String(n); }
+
+// ---- 时间格式化 ----
+// 日志里的 timestamp 是 UTC 的 ISO 串（如 2026-07-31T08:27:27.813Z），
+// 必须经 Date 转换后取本地时区字段，否则展示的是日志原始时区的时间。
+function pad2(n) { return n < 10 ? "0" + n : String(n); }
+// 仅时间：HH:MM:SS（本地时区）
+function fmtTime(ts) {
+    if (!ts) return "-";
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return ts;   // 无法解析时原样回退
+    return pad2(d.getHours()) + ":" + pad2(d.getMinutes()) + ":" + pad2(d.getSeconds());
+}
+// 日期：YYYY-MM-DD（本地时区）
+function fmtDate(ts) {
+    if (!ts) return "-";
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return ts;
+    return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+}
+// 日期 + 时间：YYYY-MM-DD HH:MM:SS（本地时区）
+function fmtDateTime(ts) {
+    if (!ts) return "-";
+    return fmtDate(ts) + " " + fmtTime(ts);
+}
+// 毫秒时间戳（如 file-history-snapshot 的 backupTime）→ YYYY-MM-DD HH:MM:SS（本地时区）
+function fmtMsTime(ms) {
+    if (ms === undefined || ms === null || ms === "") return "-";
+    const d = new Date(Number(ms));
+    if (isNaN(d.getTime())) return "-";
+    return fmtDate(d) + " " + fmtTime(d);
+}
 function escHtml(s) { return s ? String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;") : ""; }
 function debounce(fn,d) { let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn.apply(this,a),d); }; }
